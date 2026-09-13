@@ -35,9 +35,9 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   const fetchHtmlWithProxy = async (targetUrl) => {
     const proxies = [
       `/api/proxy?url=${encodeURIComponent(targetUrl)}`,
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
       `https://corsproxy.org/?url=${encodeURIComponent(targetUrl)}`,
       `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`,
       `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`
     ];
 
@@ -45,23 +45,97 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
       if (isCancelledRef.current) return null;
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const timeoutId = setTimeout(() => controller.abort(), 9000);
         const res = await fetch(proxyUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (res.ok) {
           if (proxyUrl.includes('api.allorigins.win/get')) {
             const json = await res.json();
-            if (json.contents) return json.contents;
+            if (json.contents && json.contents.length > 50) return json.contents;
           } else {
             const text = await res.text();
-            if (text && text.length > 50) return text;
+            if (text && text.length > 50 && !text.includes('522: Connection timed out') && !text.includes('520: Web server')) {
+              return text;
+            }
           }
         }
       } catch (e) {
         console.warn(`Proxy ${proxyUrl.slice(0, 35)} failed:`, e.message);
       }
     }
+    return null;
+  };
+
+  // Dedicated Spotify Extractor (Backend API + Embed Fallbacks)
+  const extractSpotifyTracks = async (spotifyUrl) => {
+    // 1. Try serverless backend endpoint first (Fastest & 100% reliable on Vercel/Node)
+    try {
+      const res = await fetch(`/api/spotify?url=${encodeURIComponent(spotifyUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.tracks && data.tracks.length > 0) {
+          return {
+            name: data.name || "Spotify Playlist",
+            tracks: data.tracks.map(t => t.query || `${t.title} ${t.artist}`.trim())
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("Direct /api/spotify endpoint unavailable, falling back to proxy extractors:", e);
+    }
+
+    // 2. Client-side Embed HTML extraction via CORS proxies
+    let embedUrl = spotifyUrl;
+    if (spotifyUrl.includes('spotify.com/playlist/')) {
+      const playlistId = spotifyUrl.split('playlist/')[1].split('?')[0];
+      embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+    } else if (spotifyUrl.includes('spotify.com/album/')) {
+      const albumId = spotifyUrl.split('album/')[1].split('?')[0];
+      embedUrl = `https://open.spotify.com/embed/album/${albumId}`;
+    } else if (spotifyUrl.includes('spotify.com/track/')) {
+      const trackId = spotifyUrl.split('track/')[1].split('?')[0];
+      embedUrl = `https://open.spotify.com/embed/track/${trackId}`;
+    }
+
+    const htmlText = await fetchHtmlWithProxy(embedUrl);
+    if (htmlText) {
+      const match = htmlText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+      if (match) {
+        try {
+          const nextData = JSON.parse(match[1]);
+          const entity = nextData?.props?.pageProps?.state?.data?.entity;
+          if (entity) {
+            const name = entity.name || entity.title || "Spotify Playlist";
+            if (entity.trackList && entity.trackList.length > 0) {
+              return {
+                name,
+                tracks: entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim())
+              };
+            } else if (entity.title) {
+              return {
+                name,
+                tracks: [`${entity.title} ${entity.subtitle || ''}`.trim()]
+              };
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to parse Spotify __NEXT_DATA__ JSON:", err);
+        }
+      }
+    }
+
+    // 3. Single track oEmbed fallback ONLY if input is a single track
+    if (spotifyUrl.includes('spotify.com/track/')) {
+      const singleTitle = await fetchSpotifyOembed(spotifyUrl);
+      if (singleTitle) {
+        return {
+          name: singleTitle,
+          tracks: [singleTitle]
+        };
+      }
+    }
+
     return null;
   };
 
@@ -161,64 +235,30 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
       const isYoutube = input.includes('youtube.com') || input.includes('youtu.be');
 
       if (!isSpotify && !isYoutube) {
-        toast.error('Please enter valid Spotify or YouTube links');
+        toast.error('Please enter a valid Spotify or YouTube link');
         return;
       }
 
       setIsImporting(true);
-      setProgress({ current: 0, total: 0, added: 0, skipped: 0, status: 'Analyzing links...' });
+      setProgress({ current: 0, total: 0, added: 0, skipped: 0, status: 'Analyzing playlist link...' });
 
       try {
         if (isSpotify) {
-          if (input.includes('spotify.com/track/')) {
-            // Single track import
-            const title = await fetchSpotifyOembed(input);
-            if (title) {
-              trackList = [title];
-              defaultPlaylistName = `Track: ${title}`;
-            }
+          const spotifyResult = await extractSpotifyTracks(input);
+          if (isCancelledRef.current) {
+            setIsImporting(false);
+            return;
+          }
+
+          if (spotifyResult && spotifyResult.tracks && spotifyResult.tracks.length > 0) {
+            trackList = spotifyResult.tracks;
+            defaultPlaylistName = spotifyResult.name;
           } else {
-            let embedUrl = input;
-            if (input.includes('spotify.com/playlist/')) {
-              const playlistId = input.split('playlist/')[1].split('?')[0];
-              embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
-            } else if (input.includes('spotify.com/album/')) {
-              const albumId = input.split('album/')[1].split('?')[0];
-              embedUrl = `https://open.spotify.com/embed/album/${albumId}`;
-            }
-
-            const htmlText = await fetchHtmlWithProxy(embedUrl);
-            if (isCancelledRef.current) {
-              setIsImporting(false);
-              return;
-            }
-
-            if (!htmlText) throw new Error("Failed to fetch Spotify playlist. Make sure the playlist is public.");
-
-            const match = htmlText.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
-            if (match) {
-              const nextData = JSON.parse(match[1]);
-              const entity = nextData?.props?.pageProps?.state?.data?.entity;
-              if (entity && entity.trackList && entity.trackList.length > 0) {
-                defaultPlaylistName = entity.name || entity.title || "Spotify Import";
-                trackList = entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim());
-              }
-            }
-
-            if (trackList.length === 0) {
-              // Fallback to oembed
-              const oembedTitle = await fetchSpotifyOembed(input);
-              if (oembedTitle) {
-                trackList = [oembedTitle];
-                defaultPlaylistName = oembedTitle;
-              } else {
-                throw new Error("Could not extract tracks from Spotify playlist. Ensure it is public.");
-              }
-            }
+            throw new Error("Could not extract tracks from this Spotify link. Please verify the playlist is public, or paste the song titles into the 'Manual / Titles' tab.");
           }
         } else if (isYoutube) {
           const ytIds = extractYoutubeVideoIds(input);
-          const isStandardPlaylist = input.includes('list=PL') || input.includes('list=UU') || input.includes('list=OLAK5uy_');
+          const isStandardPlaylist = input.includes('list=PL') || input.includes('list=UU') || input.includes('list=OLAK5uy_') || input.includes('list=');
 
           if (isStandardPlaylist) {
             const htmlText = await fetchHtmlWithProxy(input);
@@ -232,38 +272,42 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
               if (!match) match = htmlText.match(/window\["ytInitialData"\]\s*=\s*(\{.+?\});\s*<\/script>/s);
               
               if (match) {
-                const data = JSON.parse(match[1]);
-                const titles = [];
-                
-                const searchForTracks = (obj) => {
-                  if (!obj || typeof obj !== 'object' || isCancelledRef.current) return;
-                  if (obj.playlistVideoRenderer && obj.playlistVideoRenderer.title) {
-                    const title = obj.playlistVideoRenderer.title.runs?.[0]?.text;
-                    const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-                    if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
-                  } else if (obj.musicResponsiveListItemRenderer) {
-                    const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
-                    if (flexColumns && flexColumns.length > 0) {
-                      const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-                      let artist = '';
-                      if (flexColumns.length > 1) {
-                        artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
-                      }
+                try {
+                  const data = JSON.parse(match[1]);
+                  const titles = [];
+                  
+                  const searchForTracks = (obj) => {
+                    if (!obj || typeof obj !== 'object' || isCancelledRef.current) return;
+                    if (obj.playlistVideoRenderer && obj.playlistVideoRenderer.title) {
+                      const title = obj.playlistVideoRenderer.title.runs?.[0]?.text;
+                      const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
                       if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
+                    } else if (obj.musicResponsiveListItemRenderer) {
+                      const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
+                      if (flexColumns && flexColumns.length > 0) {
+                        const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+                        let artist = '';
+                        if (flexColumns.length > 1) {
+                          artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
+                        }
+                        if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
+                      }
+                    } else if (obj.gridVideoRenderer && obj.gridVideoRenderer.title) {
+                      const title = obj.gridVideoRenderer.title.runs?.[0]?.text;
+                      const artist = obj.gridVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+                      if (title) titles.push(`${title} ${artist}`.trim());
                     }
-                  } else if (obj.gridVideoRenderer && obj.gridVideoRenderer.title) {
-                    const title = obj.gridVideoRenderer.title.runs?.[0]?.text;
-                    const artist = obj.gridVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-                    if (title) titles.push(`${title} ${artist}`.trim());
+                    Object.values(obj).forEach(val => searchForTracks(val));
+                  };
+                  
+                  searchForTracks(data);
+                  if (titles.length > 0) {
+                    trackList = [...new Set(titles)];
+                    const titleMatch = htmlText.match(/<title>(.*?)<\/title>/);
+                    if (titleMatch) defaultPlaylistName = titleMatch[1].replace(' - YouTube', '').replace(' - YouTube Music', '');
                   }
-                  Object.values(obj).forEach(val => searchForTracks(val));
-                };
-                
-                searchForTracks(data);
-                if (titles.length > 0) {
-                  trackList = [...new Set(titles)];
-                  const titleMatch = htmlText.match(/<title>(.*?)<\/title>/);
-                  if (titleMatch) defaultPlaylistName = titleMatch[1].replace(' - YouTube', '').replace(' - YouTube Music', '');
+                } catch (e) {
+                  console.warn("Failed to parse YouTube initialData:", e);
                 }
               }
             }
@@ -284,7 +328,7 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
           }
 
           if (trackList.length === 0 && !isCancelledRef.current) {
-            throw new Error("Could not extract tracks from YouTube. Ensure links are public.");
+            throw new Error("Could not extract tracks from YouTube. Please verify the playlist is public, or paste titles into 'Manual / Titles'.");
           }
         }
       } catch (err) {
@@ -363,7 +407,7 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
         total: trackList.length, 
         added: addedCount,
         skipped: skippedCount,
-        status: `Matching: ${cleaned.slice(0, 32)}...` 
+        status: `Matching (${i + 1}/${trackList.length}): ${cleaned.slice(0, 28)}...` 
       });
 
       try {

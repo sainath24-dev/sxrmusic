@@ -116,12 +116,19 @@ const ArtistDetail = () => {
           </button>
         </div>
 
-        {/* Popular Songs Section */}
+        {/* All Songs Section */}
         <div className="flex flex-col">
-          <h2 className="text-[18px] font-bold text-[#0F0F0F] mb-4">Popular Tracks</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-[18px] font-bold text-[#0F0F0F]">All Tracks</h2>
+            {songs.length > 0 && (
+              <span className="text-xs font-bold text-[#337418] bg-[#C8F142]/20 px-2.5 py-0.5 rounded-full border border-[#5DD62C]/30">
+                {songs.length} Tracks
+              </span>
+            )}
+          </div>
 
           <div className="flex flex-col space-y-1.5">
-            {songs.slice(0, 15).map((song, index) => {
+            {songs.map((song, index) => {
               const isCurrent = currentSong?.id === song.id;
               const isLiked = likedSongs.some(s => s.id === song.id);
 

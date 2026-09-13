@@ -47,21 +47,31 @@ export const searchArtists = (query, limit = 20) => fetchApi('/search/artists', 
 export const getAlbumById = (id) => fetchApi('/albums', { id });
 export const getArtistById = (id) => fetchApi(`/artists/${id}`);
 
-export const getArtistSongs = async (id, pages = 3) => {
+export const getArtistSongs = async (id, maxPages = 10) => {
+  const seenIds = new Set();
   const allResults = [];
-  for (let i = 0; i < pages; i++) {
-    const res = await fetchApi(`/artists/${id}/songs`, { page: i, limit: 50, n: 50 });
+
+  // Fetch multiple catalog pages concurrently for instant loading of complete discography
+  const pagePromises = Array.from({ length: maxPages }, (_, i) =>
+    fetchApi(`/artists/${id}/songs`, { page: i, limit: 50, n: 50 })
+  );
+
+  const responses = await Promise.all(pagePromises);
+
+  for (const res of responses) {
     if (res.success && res.data) {
-      const results = res.data.results || res.data || [];
+      const results = res.data.results || res.data?.songs || res.data || [];
       if (Array.isArray(results)) {
-        allResults.push(...results);
-        if (results.length < 10) break;
-      } else if (results.songs) {
-        allResults.push(...results.songs);
-        if (results.songs.length < 10) break;
+        for (const song of results) {
+          if (song && song.id && !seenIds.has(song.id)) {
+            seenIds.add(song.id);
+            allResults.push(song);
+          }
+        }
       }
     }
   }
+
   return { success: true, data: { results: allResults } };
 };
 

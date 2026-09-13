@@ -139,6 +139,115 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
     return null;
   };
 
+  // Dedicated YouTube Extractor (Backend Innertube Endpoint + Direct Client Fallbacks)
+  const extractYoutubeTracks = async (youtubeUrl) => {
+    // 1. Try serverless backend endpoint first (Fastest & 100% reliable on Vercel/Node)
+    try {
+      const res = await fetch(`/api/youtube?url=${encodeURIComponent(youtubeUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.tracks && data.tracks.length > 0) {
+          return {
+            name: data.name || "YouTube Playlist",
+            tracks: data.tracks.map(t => t.query || `${t.title} ${t.artist}`.trim())
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("Direct /api/youtube endpoint unavailable, falling back:", e);
+    }
+
+    // 2. Extract playlist ID from URL
+    let playlistId = null;
+    if (youtubeUrl.includes('list=')) {
+      playlistId = youtubeUrl.split('list=')[1].split('&')[0];
+    } else if (youtubeUrl.startsWith('PL') || youtubeUrl.startsWith('UU') || youtubeUrl.startsWith('OLAK5uy_') || youtubeUrl.startsWith('RD')) {
+      playlistId = youtubeUrl;
+    }
+
+    if (playlistId) {
+      // 3. Try direct Innertube WEB_REMIX API
+      try {
+        const browseRes = await fetch('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            context: {
+              client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.00.00', hl: 'en', gl: 'US' }
+            },
+            browseId: playlistId.startsWith('VL') ? playlistId : `VL${playlistId}`
+          })
+        });
+
+        if (browseRes.ok) {
+          const data = await browseRes.json();
+          const titles = [];
+          let playlistTitle = 'YouTube Playlist';
+
+          const searchForTracks = (obj) => {
+            if (!obj || typeof obj !== 'object') return;
+            if (obj.playlistHeaderRenderer?.title?.runs?.[0]?.text) {
+              playlistTitle = obj.playlistHeaderRenderer.title.runs[0].text;
+            } else if (obj.musicDetailHeaderRenderer?.title?.runs?.[0]?.text) {
+              playlistTitle = obj.musicDetailHeaderRenderer.title.runs[0].text;
+            }
+
+            if (obj.musicResponsiveListItemRenderer) {
+              const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
+              if (flexColumns && flexColumns.length > 0) {
+                const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+                let artist = '';
+                if (flexColumns.length > 1) {
+                  artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
+                }
+                if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+                  titles.push(`${title} ${artist}`.trim());
+                }
+              }
+            } else if (obj.playlistVideoRenderer) {
+              const title = obj.playlistVideoRenderer.title?.runs?.[0]?.text || obj.playlistVideoRenderer.title?.simpleText;
+              const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+              if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+                titles.push(`${title} ${artist}`.trim());
+              }
+            }
+            Object.values(obj).forEach(searchForTracks);
+          };
+
+          searchForTracks(data);
+
+          if (titles.length > 0) {
+            return {
+              name: playlistTitle,
+              tracks: [...new Set(titles)]
+            };
+          }
+        }
+      } catch (e) {
+        console.warn("Direct Innertube call failed:", e);
+      }
+    }
+
+    // 4. Video IDs fallback via oEmbed
+    const ytIds = extractYoutubeVideoIds(youtubeUrl);
+    if (ytIds.length > 0) {
+      const titles = [];
+      for (const id of ytIds) {
+        if (isCancelledRef.current) break;
+        const title = await fetchYoutubeVideoTitle(id);
+        if (title) titles.push(title);
+      }
+      if (titles.length > 0) {
+        return {
+          name: titles.length === 1 ? titles[0] : `YouTube Mix (${titles.length} tracks)`,
+          tracks: titles
+        };
+      }
+    }
+
+    return null;
+  };
+
   // Helper to extract YouTube video IDs from a string or multiline text
   const extractYoutubeVideoIds = (text) => {
     const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/gi;
@@ -257,78 +366,17 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
             throw new Error("Could not extract tracks from this Spotify link. Please verify the playlist is public, or paste the song titles into the 'Manual / Titles' tab.");
           }
         } else if (isYoutube) {
-          const ytIds = extractYoutubeVideoIds(input);
-          const isStandardPlaylist = input.includes('list=PL') || input.includes('list=UU') || input.includes('list=OLAK5uy_') || input.includes('list=');
-
-          if (isStandardPlaylist) {
-            const htmlText = await fetchHtmlWithProxy(input);
-            if (isCancelledRef.current) {
-              setIsImporting(false);
-              return;
-            }
-
-            if (htmlText) {
-              let match = htmlText.match(/var\s+ytInitialData\s*=\s*(\{.+?\});\s*<\/script>/s);
-              if (!match) match = htmlText.match(/window\["ytInitialData"\]\s*=\s*(\{.+?\});\s*<\/script>/s);
-              
-              if (match) {
-                try {
-                  const data = JSON.parse(match[1]);
-                  const titles = [];
-                  
-                  const searchForTracks = (obj) => {
-                    if (!obj || typeof obj !== 'object' || isCancelledRef.current) return;
-                    if (obj.playlistVideoRenderer && obj.playlistVideoRenderer.title) {
-                      const title = obj.playlistVideoRenderer.title.runs?.[0]?.text;
-                      const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-                      if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
-                    } else if (obj.musicResponsiveListItemRenderer) {
-                      const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
-                      if (flexColumns && flexColumns.length > 0) {
-                        const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-                        let artist = '';
-                        if (flexColumns.length > 1) {
-                          artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
-                        }
-                        if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
-                      }
-                    } else if (obj.gridVideoRenderer && obj.gridVideoRenderer.title) {
-                      const title = obj.gridVideoRenderer.title.runs?.[0]?.text;
-                      const artist = obj.gridVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-                      if (title) titles.push(`${title} ${artist}`.trim());
-                    }
-                    Object.values(obj).forEach(val => searchForTracks(val));
-                  };
-                  
-                  searchForTracks(data);
-                  if (titles.length > 0) {
-                    trackList = [...new Set(titles)];
-                    const titleMatch = htmlText.match(/<title>(.*?)<\/title>/);
-                    if (titleMatch) defaultPlaylistName = titleMatch[1].replace(' - YouTube', '').replace(' - YouTube Music', '');
-                  }
-                } catch (e) {
-                  console.warn("Failed to parse YouTube initialData:", e);
-                }
-              }
-            }
+          const ytResult = await extractYoutubeTracks(input);
+          if (isCancelledRef.current) {
+            setIsImporting(false);
+            return;
           }
 
-          // Multi-video link fallback via direct oEmbed
-          if (trackList.length === 0 && ytIds.length > 0) {
-            setProgress({ current: 0, total: ytIds.length, added: 0, skipped: 0, status: 'Fetching video details...' });
-            for (let i = 0; i < ytIds.length; i++) {
-              if (isCancelledRef.current) break;
-              const videoTitle = await fetchYoutubeVideoTitle(ytIds[i]);
-              if (videoTitle) {
-                trackList.push(videoTitle);
-              }
-              setProgress({ current: i + 1, total: ytIds.length, added: 0, skipped: 0, status: `Fetched ${i + 1}/${ytIds.length} titles` });
-            }
-            defaultPlaylistName = `YouTube Mix (${trackList.length} tracks)`;
-          }
-
-          if (trackList.length === 0 && !isCancelledRef.current) {
-            throw new Error("Could not extract tracks from YouTube. Please verify the playlist is public, or paste titles into 'Manual / Titles'.");
+          if (ytResult && ytResult.tracks && ytResult.tracks.length > 0) {
+            trackList = ytResult.tracks;
+            defaultPlaylistName = ytResult.name;
+          } else {
+            throw new Error("Could not extract tracks from this YouTube link. Please verify the playlist is public, or paste titles into 'Manual / Titles'.");
           }
         }
       } catch (err) {

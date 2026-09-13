@@ -5,14 +5,28 @@ import { clsx } from 'clsx';
 import { searchAll, decodeHtml } from '../../api/saavn';
 import usePlayerStore from '../../store/playerStore';
 import Logo from '../ui/Logo';
+import UpdatesModal, { APP_UPDATES } from '../ui/UpdatesModal';
 
 const TopBar = () => {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
+  const [hasUnread, setHasUnread] = useState(false);
   const dropdownRef = useRef(null);
   const { setSong, setQueue } = usePlayerStore();
+
+  useEffect(() => {
+    try {
+      const lastReadId = localStorage.getItem('sxr_last_read_update');
+      if (lastReadId !== APP_UPDATES[0]?.id) {
+        setHasUnread(true);
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+  }, []);
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -167,15 +181,45 @@ const TopBar = () => {
       </div>
 
       {/* Right Desktop Actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        <button 
-          className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm flex items-center justify-center transition-all relative" 
-          onClick={() => navigate('/stats')}
-          title="Stats & Activity"
-        >
-          <Bell size={16} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#5DD62C] rounded-full" />
-        </button>
+      <div className="flex items-center gap-2 shrink-0 relative">
+        <div className="relative">
+          <button 
+            className={clsx(
+              "w-8 h-8 rounded-full border shadow-sm flex items-center justify-center transition-all relative",
+              showUpdates 
+                ? "bg-[#0F0F0F] text-white border-[#0F0F0F]" 
+                : "bg-[#FFFFFF] border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6]"
+            )}
+            onClick={() => {
+              const nextState = !showUpdates;
+              setShowUpdates(nextState);
+              if (hasUnread) {
+                try {
+                  localStorage.setItem('sxr_last_read_update', APP_UPDATES[0]?.id || 'read');
+                  setHasUnread(false);
+                } catch {}
+              }
+            }}
+            title="What's New & Updates"
+          >
+            <Bell size={16} />
+            {hasUnread && (
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-[#5DD62C] rounded-full ring-2 ring-[#FFFFFF] animate-pulse" />
+            )}
+          </button>
+
+          <UpdatesModal 
+            isOpen={showUpdates} 
+            onClose={() => setShowUpdates(false)}
+            onMarkAllRead={() => {
+              try {
+                localStorage.setItem('sxr_last_read_update', APP_UPDATES[0]?.id || 'read');
+                setHasUnread(false);
+              } catch {}
+            }}
+          />
+        </div>
+
         <div 
           onClick={() => navigate('/library')}
           className="w-8 h-8 rounded-full bg-[#FFFFFF] border-2 border-[#5DD62C] text-[#337418] shadow-sm flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-[#C8F142] hover:text-black transition-colors"

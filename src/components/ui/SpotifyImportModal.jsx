@@ -29,7 +29,7 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   const [progress, setProgress] = useState({ current: 0, total: 0, added: 0, skipped: 0, status: '' });
   
   const isCancelledRef = useRef(false);
-  const { playlists, createPlaylist, addSongToPlaylist, deletePlaylist } = usePlayerStore();
+  const { playlists, createPlaylist, addSongToPlaylist, addSongsToPlaylist, deletePlaylist } = usePlayerStore();
 
   // Helper to fetch HTML through local server proxy or resilient CORS proxies
   const fetchHtmlWithProxy = async (targetUrl) => {
@@ -68,10 +68,10 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   };
 
   // Dedicated Spotify Extractor (Backend API + Embed Fallbacks)
-  const extractSpotifyTracks = async (spotifyUrl) => {
+  const extractSpotifyTracks = async (spotifyUrl, limit = 'all') => {
     // 1. Try serverless backend endpoint first (Fastest & 100% reliable on Vercel/Node)
     try {
-      const res = await fetch(`/api/spotify?url=${encodeURIComponent(spotifyUrl)}`);
+      const res = await fetch(`/api/spotify?url=${encodeURIComponent(spotifyUrl)}&limit=${encodeURIComponent(limit)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.tracks && data.tracks.length > 0) {
@@ -87,9 +87,12 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
 
     // 2. Client-side Embed HTML extraction via CORS proxies
     let embedUrl = spotifyUrl;
+    let playlistId = null;
+    let isPlaylist = false;
     if (spotifyUrl.includes('spotify.com/playlist/')) {
-      const playlistId = spotifyUrl.split('playlist/')[1].split('?')[0];
+      playlistId = spotifyUrl.split('playlist/')[1].split('?')[0];
       embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+      isPlaylist = true;
     } else if (spotifyUrl.includes('spotify.com/album/')) {
       const albumId = spotifyUrl.split('album/')[1].split('?')[0];
       embedUrl = `https://open.spotify.com/embed/album/${albumId}`;
@@ -100,28 +103,89 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
 
     const htmlText = await fetchHtmlWithProxy(embedUrl);
     if (htmlText) {
+      let playlistName = "Spotify Playlist";
+      let embedTracks = [];
+
       const match = htmlText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
       if (match) {
         try {
           const nextData = JSON.parse(match[1]);
           const entity = nextData?.props?.pageProps?.state?.data?.entity;
           if (entity) {
-            const name = entity.name || entity.title || "Spotify Playlist";
+            playlistName = entity.name || entity.title || playlistName;
             if (entity.trackList && entity.trackList.length > 0) {
-              return {
-                name,
-                tracks: entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim())
-              };
+              embedTracks = entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim());
             } else if (entity.title) {
-              return {
-                name,
-                tracks: [`${entity.title} ${entity.subtitle || ''}`.trim()]
-              };
+              embedTracks = [`${entity.title} ${entity.subtitle || ''}`.trim()];
             }
           }
         } catch (err) {
           console.warn("Failed to parse Spotify __NEXT_DATA__ JSON:", err);
         }
+      }
+
+      // Check for accessToken to attempt multi-page retrieval
+      const tokenMatch = htmlText.match(/"accessToken":"([^"]+)"/);
+      if (isPlaylist && playlistId && tokenMatch) {
+        try {
+          const token = tokenMatch[1];
+          const HASH = "86dde7b9d9356e2369414647cf6950cfed96e778e129cfdfc99aea6c1613b3b0";
+          let maxTracks = limit === 'all' ? 1000 : parseInt(limit, 10) || 1000;
+          let offset = 0;
+          let totalCount = Infinity;
+          let pagedTracks = [];
+          let pages = 0;
+
+          while (offset < totalCount && pagedTracks.length < maxTracks && pages < 15) {
+            if (isCancelledRef.current) break;
+            pages++;
+            const params = new URLSearchParams({
+              operationName: "fetchPlaylistContents",
+              variables: JSON.stringify({ uri: `spotify:playlist:${playlistId}`, offset, limit: 100 }),
+              extensions: JSON.stringify({ persistedQuery: { version: 1, sha256Hash: HASH } })
+            });
+
+            const pRes = await fetch(`https://api-partner.spotify.com/pathfinder/v1/query?${params.toString()}`, {
+              headers: { "Authorization": `Bearer ${token}` }
+            });
+
+            if (!pRes.ok) break;
+            const pData = await pRes.json();
+            const content = pData.data?.playlistV2?.content;
+            if (!content || !content.items || content.items.length === 0) break;
+
+            if (content.totalCount !== undefined) totalCount = content.totalCount;
+
+            for (const it of content.items) {
+              if (pagedTracks.length >= maxTracks) break;
+              const trackData = it.itemV2?.data;
+              if (trackData && trackData.name) {
+                const title = trackData.name;
+                const artist = trackData.artists?.items?.map(a => a.profile?.name).filter(Boolean).join(", ") || "";
+                pagedTracks.push(`${title} ${artist}`.trim());
+              }
+            }
+
+            offset += content.items.length;
+            if (content.items.length < 100) break;
+          }
+
+          if (pagedTracks.length > 0) {
+            return {
+              name: playlistName,
+              tracks: pagedTracks
+            };
+          }
+        } catch (e) {
+          console.warn("Client partner query failed, using embed tracks fallback:", e);
+        }
+      }
+
+      if (embedTracks.length > 0) {
+        return {
+          name: playlistName,
+          tracks: embedTracks
+        };
       }
     }
 
@@ -140,10 +204,10 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   };
 
   // Dedicated YouTube Extractor (Backend Innertube Endpoint + Direct Client Fallbacks)
-  const extractYoutubeTracks = async (youtubeUrl) => {
+  const extractYoutubeTracks = async (youtubeUrl, limit = 'all') => {
     // 1. Try serverless backend endpoint first (Fastest & 100% reliable on Vercel/Node)
     try {
-      const res = await fetch(`/api/youtube?url=${encodeURIComponent(youtubeUrl)}`);
+      const res = await fetch(`/api/youtube?url=${encodeURIComponent(youtubeUrl)}&limit=${encodeURIComponent(limit)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.tracks && data.tracks.length > 0) {
@@ -166,8 +230,48 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
     }
 
     if (playlistId) {
-      // 3. Try direct Innertube WEB_REMIX API
+      // 3. Try direct Innertube WEB_REMIX API with multi-page continuations
       try {
+        const maxTracks = limit === 'all' ? 1000 : parseInt(limit, 10) || 1000;
+        let continuationToken = null;
+        const titles = [];
+        let playlistTitle = 'YouTube Playlist';
+
+        const searchForTracks = (obj) => {
+          if (!obj || typeof obj !== 'object') return;
+          if (obj.playlistHeaderRenderer?.title?.runs?.[0]?.text) {
+            playlistTitle = obj.playlistHeaderRenderer.title.runs[0].text;
+          } else if (obj.musicDetailHeaderRenderer?.title?.runs?.[0]?.text) {
+            playlistTitle = obj.musicDetailHeaderRenderer.title.runs[0].text;
+          }
+
+          if (obj.musicResponsiveListItemRenderer) {
+            const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
+            if (flexColumns && flexColumns.length > 0) {
+              const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+              let artist = '';
+              if (flexColumns.length > 1) {
+                artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
+              }
+              if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+                titles.push(`${title} ${artist}`.trim());
+              }
+            }
+          } else if (obj.playlistVideoRenderer) {
+            const title = obj.playlistVideoRenderer.title?.runs?.[0]?.text || obj.playlistVideoRenderer.title?.simpleText;
+            const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+            if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+              titles.push(`${title} ${artist}`.trim());
+            }
+          }
+
+          if (obj.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+            continuationToken = obj.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+          }
+
+          Object.values(obj).forEach(searchForTracks);
+        };
+
         const browseRes = await fetch('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -181,45 +285,37 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
 
         if (browseRes.ok) {
           const data = await browseRes.json();
-          const titles = [];
-          let playlistTitle = 'YouTube Playlist';
-
-          const searchForTracks = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            if (obj.playlistHeaderRenderer?.title?.runs?.[0]?.text) {
-              playlistTitle = obj.playlistHeaderRenderer.title.runs[0].text;
-            } else if (obj.musicDetailHeaderRenderer?.title?.runs?.[0]?.text) {
-              playlistTitle = obj.musicDetailHeaderRenderer.title.runs[0].text;
-            }
-
-            if (obj.musicResponsiveListItemRenderer) {
-              const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
-              if (flexColumns && flexColumns.length > 0) {
-                const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-                let artist = '';
-                if (flexColumns.length > 1) {
-                  artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
-                }
-                if (title && title !== '[Private video]' && title !== '[Deleted video]') {
-                  titles.push(`${title} ${artist}`.trim());
-                }
-              }
-            } else if (obj.playlistVideoRenderer) {
-              const title = obj.playlistVideoRenderer.title?.runs?.[0]?.text || obj.playlistVideoRenderer.title?.simpleText;
-              const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-              if (title && title !== '[Private video]' && title !== '[Deleted video]') {
-                titles.push(`${title} ${artist}`.trim());
-              }
-            }
-            Object.values(obj).forEach(searchForTracks);
-          };
-
           searchForTracks(data);
+
+          let pages = 1;
+          while (continuationToken && titles.length < maxTracks && pages < 15) {
+            if (isCancelledRef.current) break;
+            const nextTok = continuationToken;
+            continuationToken = null;
+            pages++;
+
+            const contRes = await fetch('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                context: {
+                  client: { clientName: 'WEB_REMIX', clientVersion: '1.20240101.00.00', hl: 'en', gl: 'US' }
+                },
+                continuation: nextTok
+              })
+            });
+
+            if (!contRes.ok) break;
+            const contData = await contRes.json();
+            const prevLen = titles.length;
+            searchForTracks(contData);
+            if (titles.length === prevLen) break;
+          }
 
           if (titles.length > 0) {
             return {
               name: playlistTitle,
-              tracks: [...new Set(titles)]
+              tracks: [...new Set(titles)].slice(0, maxTracks)
             };
           }
         }
@@ -353,7 +449,7 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
 
       try {
         if (isSpotify) {
-          const spotifyResult = await extractSpotifyTracks(input);
+          const spotifyResult = await extractSpotifyTracks(input, trackLimit);
           if (isCancelledRef.current) {
             setIsImporting(false);
             return;
@@ -366,7 +462,7 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
             throw new Error("Could not extract tracks from this Spotify link. Please verify the playlist is public, or paste the song titles into the 'Manual / Titles' tab.");
           }
         } else if (isYoutube) {
-          const ytResult = await extractYoutubeTracks(input);
+          const ytResult = await extractYoutubeTracks(input, trackLimit);
           if (isCancelledRef.current) {
             setIsImporting(false);
             return;
@@ -441,52 +537,67 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
     let addedCount = 0;
     let skippedCount = 0;
 
-    for (let i = 0; i < trackList.length; i++) {
-      if (isCancelledRef.current) {
-        break;
+    // Batch match in parallel chunks of 4 for 4x faster imports of large playlists
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < trackList.length; i += BATCH_SIZE) {
+      if (isCancelledRef.current) break;
+
+      const batch = trackList.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (rawTitle) => {
+          if (isCancelledRef.current) return null;
+          const cleaned = cleanSongTitle(rawTitle);
+          const query = cleaned.split(' ').slice(0, 6).join(' ');
+
+          try {
+            let matchedSong = null;
+            const res = await searchSongs(query, 1);
+            if (res.success && res.data?.results?.length > 0) {
+              matchedSong = res.data.results[0];
+            } else {
+              const fbRes = await searchSongs(rawTitle.replace(/[\[\]\(\)]/g, ''), 1);
+              if (fbRes.success && fbRes.data?.results?.length > 0) {
+                matchedSong = fbRes.data.results[0];
+              }
+            }
+            return { rawTitle, cleaned, matchedSong };
+          } catch (e) {
+            return { rawTitle, cleaned, matchedSong: null };
+          }
+        })
+      );
+
+      if (isCancelledRef.current) break;
+
+      const newSongsToSave = [];
+      for (const res of batchResults) {
+        if (!res || !res.matchedSong) continue;
+        const matchedSong = res.matchedSong;
+        const songKey = `${(matchedSong.name || matchedSong.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${(matchedSong.artists?.primary?.[0]?.name || matchedSong.subtitle || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+
+        if (existingSongIds.has(matchedSong.id) || existingSongKeys.has(songKey)) {
+          skippedCount++;
+        } else {
+          newSongsToSave.push(matchedSong);
+          existingSongIds.add(matchedSong.id);
+          existingSongKeys.add(songKey);
+          addedCount++;
+        }
       }
 
-      const rawTitle = trackList[i];
-      const cleaned = cleanSongTitle(rawTitle);
-      const query = cleaned.split(' ').slice(0, 6).join(' '); // Best match query
-      
-      setProgress({ 
-        current: i + 1, 
-        total: trackList.length, 
+      if (newSongsToSave.length > 0) {
+        addSongsToPlaylist(playlistId, newSongsToSave);
+      }
+
+      const currentProcessed = Math.min(i + BATCH_SIZE, trackList.length);
+      const lastCleaned = batchResults[batchResults.length - 1]?.cleaned || '';
+      setProgress({
+        current: currentProcessed,
+        total: trackList.length,
         added: addedCount,
         skipped: skippedCount,
-        status: `Matching (${i + 1}/${trackList.length}): ${cleaned.slice(0, 28)}...` 
+        status: `Matching (${currentProcessed}/${trackList.length}): ${lastCleaned.slice(0, 28)}...`
       });
-
-      try {
-        let matchedSong = null;
-        const res = await searchSongs(query, 1);
-        if (res.success && res.data?.results?.length > 0) {
-          matchedSong = res.data.results[0];
-        } else {
-          // Fallback search with raw title
-          const fbRes = await searchSongs(rawTitle.replace(/[\[\]\(\)]/g, ''), 1);
-          if (fbRes.success && fbRes.data?.results?.length > 0) {
-            matchedSong = fbRes.data.results[0];
-          }
-        }
-
-        if (matchedSong) {
-          const songKey = `${(matchedSong.name || matchedSong.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${(matchedSong.artists?.primary?.[0]?.name || matchedSong.subtitle || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
-
-          if (existingSongIds.has(matchedSong.id) || existingSongKeys.has(songKey)) {
-            // Already present in the playlist
-            skippedCount++;
-          } else {
-            addSongToPlaylist(playlistId, matchedSong);
-            existingSongIds.add(matchedSong.id);
-            existingSongKeys.add(songKey);
-            addedCount++;
-          }
-        }
-      } catch (e) {
-        console.error("Failed to find track:", query);
-      }
     }
 
     if (isCancelledRef.current) {

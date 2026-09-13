@@ -124,6 +124,17 @@ const usePlayerStore = create(
             : p
         )
       })),
+      addSongsToPlaylist: (playlistId, newSongs) => set((state) => {
+        if (!newSongs || newSongs.length === 0) return state;
+        const newSongIds = new Set(newSongs.map(s => s.id));
+        return {
+          playlists: state.playlists.map(p => {
+            if (p.id !== playlistId) return p;
+            const existingFiltered = (p.songs || []).filter(s => !newSongIds.has(s.id));
+            return { ...p, songs: [...existingFiltered, ...newSongs] };
+          })
+        };
+      }),
       removeSongFromPlaylist: (playlistId, songId) => set((state) => ({
         playlists: state.playlists.map(p => 
           p.id === playlistId 

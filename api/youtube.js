@@ -13,10 +13,19 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { url, list } = req.query;
+  const { url, list, limit } = req.query;
   const input = url || list;
   if (!input) {
     return res.status(400).json({ error: 'Missing YouTube url or list parameter' });
+  }
+
+  // Parse maximum track limit
+  let maxLimit = 1000;
+  if (limit && limit !== 'all') {
+    const parsed = parseInt(limit, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      maxLimit = parsed;
+    }
   }
 
   try {
@@ -30,6 +39,56 @@ export default async function handler(req, res) {
     }
 
     if (playlistId) {
+      let playlistTitle = 'YouTube Playlist';
+      let continuationToken = null;
+      const tracks = [];
+      const seenQueries = new Set();
+
+      const extractTracksAndContinuation = (obj) => {
+        if (!obj || typeof obj !== 'object') return;
+
+        if (obj.playlistHeaderRenderer?.title?.runs?.[0]?.text) {
+          playlistTitle = obj.playlistHeaderRenderer.title.runs[0].text;
+        } else if (obj.musicDetailHeaderRenderer?.title?.runs?.[0]?.text) {
+          playlistTitle = obj.musicDetailHeaderRenderer.title.runs[0].text;
+        }
+
+        if (obj.musicResponsiveListItemRenderer) {
+          const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
+          if (flexColumns && flexColumns.length > 0) {
+            const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+            let artist = '';
+            if (flexColumns.length > 1) {
+              artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
+            }
+            if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+              const query = `${title} ${artist}`.trim();
+              if (!seenQueries.has(query.toLowerCase())) {
+                seenQueries.add(query.toLowerCase());
+                tracks.push({ title, artist, query });
+              }
+            }
+          }
+        } else if (obj.playlistVideoRenderer) {
+          const title = obj.playlistVideoRenderer.title?.runs?.[0]?.text || obj.playlistVideoRenderer.title?.simpleText;
+          const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+          if (title && title !== '[Private video]' && title !== '[Deleted video]') {
+            const query = `${title} ${artist}`.trim();
+            if (!seenQueries.has(query.toLowerCase())) {
+              seenQueries.add(query.toLowerCase());
+              tracks.push({ title, artist, query });
+            }
+          }
+        }
+
+        if (obj.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+          continuationToken = obj.continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+        }
+
+        Object.values(obj).forEach(extractTracksAndContinuation);
+      };
+
+      // 1. Initial Browse Request
       const browseRes = await fetch('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', {
         method: 'POST',
         headers: {
@@ -53,59 +112,49 @@ export default async function handler(req, res) {
         return res.status(browseRes.status).json({ error: `YouTube API returned status ${browseRes.status}` });
       }
 
-      const data = await browseRes.json();
-      const tracks = [];
-      let playlistTitle = 'YouTube Playlist';
+      const initialData = await browseRes.json();
+      extractTracksAndContinuation(initialData);
 
-      const searchForTracks = (obj) => {
-        if (!obj || typeof obj !== 'object') return;
-        
-        // Extract title if available in header
-        if (obj.playlistHeaderRenderer?.title?.runs?.[0]?.text) {
-          playlistTitle = obj.playlistHeaderRenderer.title.runs[0].text;
-        } else if (obj.musicDetailHeaderRenderer?.title?.runs?.[0]?.text) {
-          playlistTitle = obj.musicDetailHeaderRenderer.title.runs[0].text;
-        }
+      // 2. Multi-page Continuation Loop (fetching beyond 100 tracks up to maxLimit)
+      let pages = 1;
+      while (continuationToken && tracks.length < maxLimit && pages < 15) {
+        const nextTok = continuationToken;
+        continuationToken = null;
+        pages++;
 
-        if (obj.musicResponsiveListItemRenderer) {
-          const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
-          if (flexColumns && flexColumns.length > 0) {
-            const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-            let artist = '';
-            if (flexColumns.length > 1) {
-              artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
-            }
-            if (title && title !== '[Private video]' && title !== '[Deleted video]') {
-              tracks.push({
-                title,
-                artist,
-                query: `${title} ${artist}`.trim()
-              });
-            }
-          }
-        } else if (obj.playlistVideoRenderer) {
-          const title = obj.playlistVideoRenderer.title?.runs?.[0]?.text || obj.playlistVideoRenderer.title?.simpleText;
-          const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-          if (title && title !== '[Private video]' && title !== '[Deleted video]') {
-            tracks.push({
-              title,
-              artist,
-              query: `${title} ${artist}`.trim()
-            });
-          }
-        }
+        const contRes = await fetch('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+          },
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: 'WEB_REMIX',
+                clientVersion: '1.20240101.00.00',
+                hl: 'en',
+                gl: 'US'
+              }
+            },
+            continuation: nextTok
+          })
+        });
 
-        Object.values(obj).forEach(searchForTracks);
-      };
+        if (!contRes.ok) break;
+        const contData = await contRes.json();
+        const prevCount = tracks.length;
+        extractTracksAndContinuation(contData);
+        if (tracks.length === prevCount) break; // Stop if no new tracks received
+      }
 
-      searchForTracks(data);
-
-      if (tracks.length > 0) {
+      const finalTracks = tracks.slice(0, maxLimit);
+      if (finalTracks.length > 0) {
         return res.status(200).json({
           success: true,
           name: playlistTitle,
-          total: tracks.length,
-          tracks
+          total: finalTracks.length,
+          tracks: finalTracks
         });
       }
     }

@@ -1,21 +1,23 @@
 import React from 'react';
 import { clsx } from 'clsx';
+import { Link } from 'react-router-dom';
 
 const Logo = ({ className = "" }) => {
   return (
-    <div className={clsx("flex items-center gap-3 select-none group cursor-default", className)}>
-      <div className="w-10 h-10 rounded-[8px] overflow-hidden flex items-center justify-center shadow-[0_0_20px_rgba(0,255,136,0.3)] group-hover:scale-110 transition-transform duration-500">
-        <img src="/icon.png" alt="SXR" className="w-full h-full object-cover" />
+    <Link to="/" className={clsx("flex items-center gap-2.5 select-none group cursor-pointer", className)}>
+      <div className="w-9 h-9 rounded-xl overflow-hidden bg-[#FFFFFF] border border-[#E5E7EB] flex items-center justify-center shadow-sm shrink-0 transition-transform duration-200 group-hover:scale-105">
+        <img 
+          src="/logo.png" 
+          alt="SxR-Music" 
+          className="w-full h-full object-cover" 
+        />
       </div>
-      <div className="flex flex-col leading-none">
-        <span className="font-['Orbitron'] text-2xl font-black text-[#00ff88] tracking-[2px] drop-shadow-[0_0_10px_rgba(0,255,136,0.3)]">
-          SXR
-        </span>
-        <span className="font-['Orbitron'] text-[10px] font-bold text-white/50 tracking-[5px] mt-0.5 ml-0.5">
-          PLAYS
+      <div className="flex items-center gap-1 leading-none">
+        <span className="font-extrabold text-[17px] text-[#0F0F0F] tracking-tight">
+          SxR<span className="text-[#337418]">-Music</span>
         </span>
       </div>
-    </div>
+    </Link>
   );
 };
 

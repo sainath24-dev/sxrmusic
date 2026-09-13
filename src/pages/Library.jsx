@@ -1,25 +1,28 @@
 import React, { useState } from 'react';
-import { Plus, Search, List, Library as LibraryIcon, Music, Play, Trash2, ChevronLeft, Heart, Download } from 'lucide-react';
+import { Plus, Search, Library as LibraryIcon, Music, Play, Trash2, ChevronLeft, Heart, Download, Share2 } from 'lucide-react';
 import usePlayerStore from '../store/playerStore';
 import useDownloadStore from '../store/downloadStore';
 import { decodeHtml } from '../api/saavn';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import SpotifyImportModal from '../components/ui/SpotifyImportModal';
 
 const Library = () => {
   const navigate = useNavigate();
-  const { playlists, createPlaylist, deletePlaylist, removeSongFromPlaylist, setSong, setQueue, likedSongs } = usePlayerStore();
+  const { playlists, createPlaylist, deletePlaylist, removeSongFromPlaylist, setSong, setQueue, likedSongs, currentSong } = usePlayerStore();
   const { downloadedSongs } = useDownloadStore();
   const [activePlaylistId, setActivePlaylistId] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [showImport, setShowImport] = useState(null); // 'spotify' | 'youtube' | null
+  const [showImport, setShowImport] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
 
+  const [filterTab, setFilterTab] = useState('all'); // 'all' | 'playlists' | 'liked' | 'downloads'
+
   const activePlaylist = activePlaylistId === 'liked' 
-    ? { name: 'Liked Songs', songs: likedSongs, id: 'liked' }
+    ? { name: 'Liked Songs', songs: likedSongs || [], id: 'liked' }
     : activePlaylistId === 'downloads'
-    ? { name: 'Downloads', songs: downloadedSongs, id: 'downloads' }
+    ? { name: 'Offline Downloads', songs: downloadedSongs || [], id: 'downloads' }
     : playlists.find(p => p.id === activePlaylistId);
 
   const handleCreate = (e) => {
@@ -31,218 +34,313 @@ const Library = () => {
     setIsCreating(false);
   };
 
-  const handlePlaySong = (song, list) => {
-    setQueue(list, list.findIndex(s => s.id === song.id));
+  const handlePlaySong = (song, list, index) => {
+    setQueue(list, index);
     setSong(song);
   };
 
+  const handlePlayAll = () => {
+    if (activePlaylist?.songs?.length > 0) {
+      setQueue(activePlaylist.songs, 0);
+      setSong(activePlaylist.songs[0]);
+    }
+  };
+
+  const handleSharePlaylist = async () => {
+    if (!activePlaylist?.songs?.length) {
+      toast.error('No songs in playlist to share');
+      return;
+    }
+
+    const trackText = activePlaylist.songs
+      .map(s => `${decodeHtml(s.name || s.title)} - ${decodeHtml(s.artists?.primary?.[0]?.name || s.subtitle || '')}`)
+      .join('\n');
+
+    const shareData = {
+      title: activePlaylist.name,
+      text: `🎵 ${activePlaylist.name} (${activePlaylist.songs.length} tracks):\n\n${trackText}`,
+    };
+
+    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+        toast.success('Shared successfully!');
+        return;
+      } catch (e) {
+        if (e.name !== 'AbortError') console.warn(e);
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(trackText);
+      toast.success(`Copied ${activePlaylist.songs.length} track titles to clipboard!`);
+    } catch {
+      toast.error('Failed to copy to clipboard');
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full min-h-screen p-8 bg-[#121212]">
-      {activePlaylistId ? (
-        <div className="flex flex-col gap-8 animate-fade-in -mx-8 px-8 relative">
-          {/* Cinematic Blur Background */}
-          <div className="absolute top-0 left-0 w-full h-[400px] -z-10 overflow-hidden pointer-events-none opacity-30">
-            <div className={clsx(
-              "w-full h-full blur-[100px] transform scale-150 origin-top",
-              activePlaylistId === 'liked' ? "bg-gradient-to-br from-indigo-700 to-purple-400" : 
-              activePlaylistId === 'downloads' ? "bg-gradient-to-br from-emerald-700 to-teal-400" :
-              "bg-white/20"
-            )} />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#121212]/80 to-[#121212]" />
-          </div>
+    <div className="flex flex-col min-h-full p-4 sm:p-6 lg:p-8 select-none">
+      {activePlaylistId && activePlaylist ? (
+        <div className="flex flex-col gap-6">
+          {/* Back Button */}
+          <button 
+            onClick={() => setActivePlaylistId(null)} 
+            className="flex items-center gap-2 text-[#6B7280] hover:text-[#0F0F0F] font-bold text-[12px] uppercase tracking-wider w-max mb-2 transition-colors"
+          >
+            <ChevronLeft size={18} /> Back to My Music
+          </button>
 
           {/* Playlist Detail Header */}
-          <div className="flex items-end gap-8 pt-12 mb-8">
-            <button onClick={() => setActivePlaylistId(null)} className="absolute top-4 left-8 p-3 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full transition-colors z-20 shadow-lg"><ChevronLeft size={24} /></button>
+          <div className="flex flex-col sm:flex-row items-start sm:items-end gap-6 pb-6 border-b border-[#EAEAEA]">
             <div className={clsx(
-              "w-48 h-48 md:w-64 md:h-64 shadow-[0_30px_60px_rgba(0,0,0,0.6)] flex items-center justify-center rounded-2xl md:rounded-[2rem] overflow-hidden relative group",
-              activePlaylistId === 'liked' ? "bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500" : 
-              activePlaylistId === 'downloads' ? "bg-gradient-to-br from-emerald-600 to-teal-500" :
-              "bg-gradient-to-br from-[#282828] to-[#121212]"
+              "w-36 h-36 sm:w-48 sm:h-48 shadow-xl flex items-center justify-center rounded-3xl overflow-hidden shrink-0 border border-[#E5E7EB]",
+              activePlaylistId === 'liked' ? "bg-gradient-to-br from-[#E2F7C2] via-[#C8F142] to-[#B2E690] border-[#5DD62C]/40" : 
+              activePlaylistId === 'downloads' ? "bg-gradient-to-br from-[#F3F4F6] to-[#E5E7EB]" :
+              "bg-[#F3F4F6]"
             )}>
-              {/* Glass reflection */}
-              <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/10 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
-              {activePlaylistId === 'liked' ? <Heart size={100} fill="white" className="drop-shadow-2xl" /> : 
-               activePlaylistId === 'downloads' ? <Download size={100} fill="white" className="drop-shadow-2xl" /> :
-               (activePlaylist.songs[0] ? <img src={activePlaylist.songs[0].image?.[2]?.url} className="w-full h-full object-cover" /> : <Music size={80} className="text-white/20" />)}
+              {activePlaylistId === 'liked' ? (
+                <Heart size={56} fill="#337418" className="text-[#337418] drop-shadow-sm" />
+              ) : activePlaylistId === 'downloads' ? (
+                <Download size={56} className="text-[#0F0F0F]" />
+              ) : activePlaylist.songs?.[0]?.image?.[2]?.url ? (
+                <img src={activePlaylist.songs[0].image[2].url} className="w-full h-full object-cover" alt="" />
+              ) : (
+                <Music size={44} className="text-[#9CA3AF]" />
+              )}
             </div>
-            <div className="flex flex-col gap-3 relative z-10">
-              <span className="text-[12px] font-black uppercase tracking-[0.3em] bg-white/10 px-3 py-1 rounded-full w-max backdrop-blur-md border border-white/10">Playlist</span>
-              <h1 className="text-5xl md:text-8xl font-black tracking-tighter drop-shadow-lg text-transparent bg-clip-text bg-gradient-to-r from-white to-white/80">{activePlaylist.name}</h1>
-              <div className="flex items-center gap-3 text-[14px] font-bold mt-2 opacity-80">
-                <span className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-accent-green flex items-center justify-center"><Play size={12} fill="black" /></div>SXR Audio</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-white/50" />
-                <span>{activePlaylist.songs.length} tracks</span>
+
+            <div className="flex flex-col gap-2 min-w-0">
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#C8F142]/20 text-[#337418] border border-[#5DD62C]/30 w-max">PLAYLIST</span>
+              <h1 className="text-3xl sm:text-5xl font-black text-[#0F0F0F] tracking-tight truncate">
+                {activePlaylist.name}
+              </h1>
+              <div className="flex items-center gap-2 text-[13px] font-medium text-[#6B7280]">
+                <span className="text-[#0F0F0F] font-bold">Your Library</span>
+                <span>•</span>
+                <span className="text-[#337418] font-bold">{activePlaylist.songs?.length || 0} tracks</span>
               </div>
             </div>
           </div>
 
-          {/* Action Bar */}
-          <div className="flex items-center gap-6 mb-8">
+          {/* Action Row */}
+          <div className="flex items-center gap-4 py-2">
             <button 
-              onClick={() => activePlaylist.songs.length > 0 && handlePlaySong(activePlaylist.songs[0], activePlaylist.songs)}
-              className="w-14 h-14 bg-accent-green rounded-full flex items-center justify-center hover:scale-105 transition-transform"
+              onClick={handlePlayAll}
+              disabled={!activePlaylist.songs?.length}
+              className="w-13 h-13 rounded-full bg-[#C8F142] text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#C8F142]/40 disabled:opacity-40 font-bold"
+              title="Play Playlist"
             >
-              <Play size={24} fill="black" className="ml-1" />
+              <Play size={22} fill="currentColor" className="ml-0.5" />
             </button>
+
+            <button 
+              onClick={handleSharePlaylist}
+              className="w-11 h-11 rounded-full bg-[#FFFFFF] hover:bg-[#F3F4F6] border border-[#E5E7EB] text-[#0F0F0F] flex items-center justify-center transition-colors shadow-sm"
+              title="Share / Copy Playlist Tracks"
+            >
+              <Share2 size={18} />
+            </button>
+
             {activePlaylistId !== 'liked' && activePlaylistId !== 'downloads' && (
               <button 
-                onClick={() => { deletePlaylist(activePlaylistId); setActivePlaylistId(null); }}
-                className="text-text-subdued hover:text-white transition-colors"
+                onClick={() => {
+                  if (window.confirm(`Delete "${activePlaylist.name}"?`)) {
+                    deletePlaylist(activePlaylistId);
+                    setActivePlaylistId(null);
+                  }
+                }}
+                className="w-11 h-11 rounded-full bg-[#FFFFFF] hover:bg-[#F3F4F6] border border-[#E5E7EB] text-[#6B7280] hover:text-red-500 flex items-center justify-center transition-colors shadow-sm"
+                title="Delete Playlist"
               >
-                <Trash2 size={24} />
+                <Trash2 size={18} />
               </button>
             )}
           </div>
 
-          {/* Song List */}
-          <div className="flex flex-col">
-             <div className="grid grid-cols-[40px_1fr_1fr_120px] gap-4 px-4 py-2 text-text-subdued border-b border-white/10 text-[14px] font-medium mb-4">
-                <span>#</span>
-                <span>Title</span>
-                <span>Album</span>
-                <span className="text-right">Duration</span>
-             </div>
-             {activePlaylist.songs.map((song, i) => (
+          {/* Tracks List */}
+          <div className="flex flex-col space-y-1.5">
+            {activePlaylist.songs?.map((song, index) => {
+              const isCurrent = currentSong?.id === song.id;
+
+              return (
                 <div 
-                  key={song.id}
-                  className="grid grid-cols-[40px_1fr_1fr_120px] gap-4 px-4 py-3 rounded-md hover:bg-white/10 group cursor-pointer"
-                  onClick={() => handlePlaySong(song, activePlaylist.songs)}
+                  key={`${song.id}-${index}`} 
+                  onClick={() => handlePlaySong(song, activePlaylist.songs, index)}
+                  className={clsx(
+                    "flex items-center justify-between p-3 rounded-2xl hover:bg-[#F4F4F5] border border-transparent hover:border-[#E5E7EB] group cursor-pointer transition-all duration-150",
+                    isCurrent ? "bg-[#F0FDF4] border-[#5DD62C]/30" : ""
+                  )}
                 >
-                  <span className="text-text-subdued flex items-center">{i + 1}</span>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img src={song.image?.[0]?.url} className="w-10 h-10 rounded" />
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-bold text-white truncate">{decodeHtml(song.name)}</span>
-                      <span className="text-[13px] text-text-subdued truncate group-hover:text-white">{decodeHtml(song.artists.primary[0]?.name)}</span>
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    <div className="w-12 h-12 rounded-2xl overflow-hidden bg-[#F3F4F6] shrink-0 border border-[#E5E7EB]">
+                      <img src={song.image?.[1]?.url || song.image?.[0]?.url || song.image} alt="" className="w-full h-full object-cover" />
+                    </div>
+
+                    <div className="min-w-0 flex-1 pr-2">
+                      <h4 className={clsx("text-sm font-bold truncate", isCurrent ? "text-[#337418]" : "text-[#0F0F0F]")}>
+                        {decodeHtml(song.name || song.title)}
+                      </h4>
+                      <p className="text-xs text-[#6B7280] truncate mt-0.5 font-medium">
+                        By {decodeHtml(song.artists?.primary?.[0]?.name || song.subtitle || "Unknown")}
+                      </p>
                     </div>
                   </div>
-                  <span className="text-text-subdued flex items-center truncate">{decodeHtml(song.album?.name)}</span>
-                  <div className="flex items-center justify-end gap-4">
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); removeSongFromPlaylist(activePlaylist.id, song.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-text-subdued hover:text-white transition-opacity"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                    <span className="text-text-subdued">{song.duration ? `${Math.floor(song.duration/60)}:${(song.duration%60).toString().padStart(2,'0')}` : '3:45'}</span>
+
+                  {/* Circular Play Button on the Right */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-[#F3F4F6] group-hover:bg-[#C8F142] group-hover:text-black text-[#0F0F0F] flex items-center justify-center transition-all border border-[#E5E7EB] group-hover:border-transparent shadow-sm font-bold">
+                      <Play size={15} fill="currentColor" className="ml-0.5" />
+                    </div>
+
+                    {activePlaylistId !== 'liked' && activePlaylistId !== 'downloads' && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeSongFromPlaylist(activePlaylistId, song.id);
+                        }}
+                        className="p-2 text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
+                        title="Remove from playlist"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
-             ))}
+              );
+            })}
+
+            {(!activePlaylist.songs || activePlaylist.songs.length === 0) && (
+              <div className="text-center py-16 text-[#6B7280] text-[13px]">
+                No songs in this playlist yet. Add songs using the context menu (+) button.
+              </div>
+            )}
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-10">
-          <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold">Your Library</h1>
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="flex bg-[#282828] rounded-full p-1 border border-white/5">
-                <button 
-                  onClick={() => setShowImport('spotify')}
-                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 bg-[#1DB954] text-black rounded-full font-bold hover:scale-105 transition-transform"
-                  title="Import from Spotify"
-                >
-                  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-                     <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.24 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-                  </svg>
-                  <span className="hidden sm:inline">Spotify</span>
-                </button>
-                <button 
-                  onClick={() => setShowImport('youtube')}
-                  className="flex items-center gap-2 px-3 sm:px-4 py-1.5 hover:bg-white/10 text-white rounded-full font-bold hover:scale-105 transition-transform"
-                  title="Import from YouTube"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#FF0000] fill-current"><path d="M2.5 7.1c.3-1.2 1.3-2.1 2.5-2.4C8.4 4.1 12 4.1 12 4.1s3.6 0 7 .6c1.2.3 2.2 1.2 2.5 2.4.6 2.3.6 7.1.6 7.1s0 4.8-.6 7.1c-.3 1.2-1.3 2.1-2.5 2.4-3.4.6-7 .6-7 .6s-3.6 0-7-.6c-1.2-.3-2.2-1.2-2.5-2.4-.6-2.3-.6-7.1-.6-7.1s0-4.8.6-7.1z"/><path d="M9.7 15.8l6.5-3.6-6.5-3.6v7.2z" fill="#121212" stroke="none"/></svg>
-                  <span className="hidden sm:inline">YouTube</span>
-                </button>
-              </div>
+        /* My Music / Library Overview (Matching Image 1 Right Phone) */
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#C8F142]/20 text-[#337418] border border-[#5DD62C]/30 mb-1 inline-block">YOUR COLLECTION</span>
+              <h1 className="text-2xl sm:text-4xl font-black text-[#0F0F0F] tracking-tight">My Music</h1>
+            </div>
+            
+            <div className="flex items-center gap-2">
               <button 
                 onClick={() => setIsCreating(true)}
-                className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 bg-white text-black rounded-full font-bold hover:scale-105 transition-transform"
+                className="cohere-btn-primary text-[13px] py-2 px-4 flex items-center gap-1.5"
               >
-                <Plus size={20} />
-                <span className="hidden sm:inline">Create Playlist</span>
-                <span className="sm:hidden">Create</span>
+                <Plus size={15} /> New Playlist
+              </button>
+              <button 
+                onClick={() => setShowImport('spotify')}
+                className="cohere-btn-outline text-[13px] py-2 px-4"
+              >
+                Import
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-            {/* Liked Songs Tile */}
-            <div 
-              onClick={() => setActivePlaylistId('liked')}
-              className="col-span-2 aspect-[2/1] bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500 p-6 md:p-8 rounded-[32px] flex flex-col justify-end gap-1 md:gap-2 cursor-pointer hover:scale-[1.02] transition-transform relative group shadow-2xl overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-64 h-64 bg-white/20 blur-[80px] rounded-full pointer-events-none" />
-              <Heart size={120} className="absolute -right-8 -bottom-8 opacity-20 rotate-12 group-hover:scale-110 transition-transform duration-700" fill="white" />
-              
-              <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-md relative z-10">Liked Songs</h2>
-              <p className="text-white/90 font-bold tracking-widest uppercase text-xs relative z-10">{likedSongs.length} tracks</p>
-              
-              <div className="absolute right-6 bottom-6 w-14 h-14 bg-accent-green rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 shadow-[0_10px_20px_rgba(29,185,84,0.4)] z-20">
-                <Play size={24} fill="black" className="ml-1" />
+          {/* Pill Category Filter Bar */}
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'playlists', label: 'Playlists' },
+              { id: 'liked', label: 'Liked Songs' },
+              { id: 'downloads', label: 'Downloads' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setFilterTab(tab.id)}
+                className={clsx(
+                  "cohere-filter-pill",
+                  filterTab === tab.id && "active"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Creation Form */}
+          {isCreating && (
+            <form onSubmit={handleCreate} className="bg-[#FFFFFF] p-4 rounded-3xl border border-[#E5E7EB] shadow-md flex flex-col sm:flex-row gap-3">
+              <input 
+                type="text" 
+                placeholder="Playlist name..." 
+                value={newPlaylistName}
+                onChange={(e) => setNewPlaylistName(e.target.value)}
+                autoFocus
+                className="cohere-search-input flex-1 px-4 py-2 text-[14px]"
+              />
+              <div className="flex gap-2">
+                <button type="submit" className="cohere-btn-primary py-2 px-5 text-[13px]">
+                  Create
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setIsCreating(false)} 
+                  className="cohere-btn-outline py-2 px-4 text-[13px]"
+                >
+                  Cancel
+                </button>
               </div>
-            </div>
+            </form>
+          )}
 
-            {/* Downloads Tile */}
-            <div 
-              onClick={() => setActivePlaylistId('downloads')}
-              className="aspect-square bg-gradient-to-br from-emerald-500 to-teal-600 p-4 md:p-6 rounded-[24px] flex flex-col justify-end gap-1 cursor-pointer hover:scale-[1.02] transition-transform relative group shadow-2xl overflow-hidden"
-            >
-              <Download size={80} className="absolute -right-4 -top-4 opacity-20 rotate-12 group-hover:scale-110 transition-transform duration-700" fill="white" />
-              <h2 className="text-xl md:text-2xl font-black text-white tracking-tight drop-shadow-md relative z-10">Downloads</h2>
-              <p className="text-white/90 font-bold uppercase text-[10px] relative z-10">{downloadedSongs.length} songs offline</p>
-            </div>
+          {/* Playlists Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {/* Liked Songs Tile */}
+            {(filterTab === 'all' || filterTab === 'liked') && (
+              <div 
+                onClick={() => setActivePlaylistId('liked')}
+                className="cohere-card group flex flex-col cursor-pointer"
+              >
+                <div className="w-full aspect-square bg-gradient-to-br from-[#E2F7C2] via-[#C8F142] to-[#B2E690] rounded-2xl flex items-center justify-center mb-3 shadow-md border border-[#5DD62C]/40">
+                  <Heart size={40} fill="#337418" className="drop-shadow-sm text-[#337418]" />
+                </div>
+                <h3 className="font-bold text-sm text-[#0F0F0F] truncate group-hover:text-[#337418] transition-colors">Liked Songs</h3>
+                <p className="text-xs text-[#6B7280] font-medium">{likedSongs.length} tracks</p>
+              </div>
+            )}
 
-            {playlists.map(p => (
+            {/* Offline Downloads Tile */}
+            {(filterTab === 'all' || filterTab === 'downloads') && (
+              <div 
+                onClick={() => setActivePlaylistId('downloads')}
+                className="cohere-card group flex flex-col cursor-pointer"
+              >
+                <div className="w-full aspect-square bg-[#F3F4F6] rounded-2xl flex items-center justify-center mb-3 shadow-sm border border-[#E5E7EB]">
+                  <Download size={40} className="text-[#0F0F0F]" />
+                </div>
+                <h3 className="font-bold text-sm text-[#0F0F0F] truncate group-hover:text-[#337418] transition-colors">Downloads</h3>
+                <p className="text-xs text-[#6B7280] font-medium">{downloadedSongs.length} tracks</p>
+              </div>
+            )}
+
+            {/* Custom User Playlists */}
+            {(filterTab === 'all' || filterTab === 'playlists') && playlists.map(p => (
               <div 
                 key={p.id}
                 onClick={() => setActivePlaylistId(p.id)}
-                className="bg-[#181818]/60 backdrop-blur-xl border border-white/5 p-4 rounded-[24px] cursor-pointer group transition-all duration-500 hover:-translate-y-2 hover:shadow-[0_20px_40px_rgba(0,0,0,0.5)]"
+                className="cohere-card group flex flex-col cursor-pointer"
               >
-                <div className="aspect-square bg-gradient-to-br from-[#282828] to-[#121212] rounded-[16px] shadow-lg mb-4 flex items-center justify-center relative overflow-hidden">
-                  {p.songs[0] ? (
-                    <img src={p.songs[0].image?.[2]?.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                <div className="w-full aspect-square bg-[#F3F4F6] rounded-2xl flex items-center justify-center mb-3 border border-[#E5E7EB] overflow-hidden shadow-sm">
+                  {p.songs?.[0]?.image?.[2]?.url ? (
+                    <img src={p.songs[0].image[2].url} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    <Music size={64} className="text-white/10" />
+                    <Music size={36} className="text-[#9CA3AF]" />
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                  <div className="absolute right-3 bottom-3 translate-y-6 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 transition-all duration-300">
-                    <div className="w-12 h-12 bg-accent-green rounded-full flex items-center justify-center text-black shadow-lg">
-                      <Play size={22} fill="currentColor" className="ml-1" />
-                    </div>
-                  </div>
                 </div>
-                <h3 className="font-black truncate text-[16px] text-white px-1">{p.name}</h3>
-                <p className="text-[12px] text-white/50 font-medium px-1 mt-1 truncate">By You • {p.songs.length} tracks</p>
+                <h3 className="font-bold text-sm text-[#0F0F0F] truncate group-hover:text-[#337418] transition-colors">{p.name}</h3>
+                <p className="text-xs text-[#6B7280] font-medium">{p.songs?.length || 0} tracks</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Create Modal */}
-      {isCreating && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <form onSubmit={handleCreate} className="bg-[#282828] p-8 rounded-2xl w-full max-w-md shadow-2xl animate-fade-in">
-            <h2 className="text-2xl font-bold mb-6">Create New Playlist</h2>
-            <input 
-              autoFocus
-              type="text" 
-              placeholder="Playlist name" 
-              value={newPlaylistName}
-              onChange={e => setNewPlaylistName(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white mb-6 focus:outline-none focus:border-white/20 text-lg"
-            />
-            <div className="flex gap-4">
-              <button type="button" onClick={() => setIsCreating(false)} className="flex-1 py-3 font-bold hover:bg-white/5 rounded-xl transition-colors">Cancel</button>
-              <button type="submit" className="flex-1 py-3 bg-white text-black font-bold rounded-xl hover:scale-105 transition-transform">Create</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Import Modal */}
       {showImport && <SpotifyImportModal type={showImport} onClose={() => setShowImport(null)} />}
     </div>
   );

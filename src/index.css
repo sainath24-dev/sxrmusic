@@ -1,116 +1,262 @@
 @import "tailwindcss";
+@source "../index.html";
+@source "./**/*.{js,jsx}";
 
 @theme {
-  --color-bg-black: #000000;
-  --color-bg-base: #121212;
-  --color-bg-card: #181818;
-  --color-bg-hover: #282828;
-  --color-accent-green: #1DB954;
-  --color-text-subdued: #A7A7A7;
-  --color-text-main: #FFFFFF;
-
-  --font-sans: "Inter", sans-serif;
+  --color-app-bg: #f8f8f8;
+  --color-app-surface: #ffffff;
+  --color-app-card: #ffffff;
+  --color-app-card-hover: #f4f4f5;
+  --color-app-lime: #c8f142;
+  --color-app-lime-bright: #d4f938;
+  --color-app-lime-muted: #5dd62c;
+  --color-app-lime-dark: #337418;
+  --color-app-border: #eaeaea;
+  --color-app-border-hover: #d4d4d8;
+  --color-app-text: #0f0f0f;
+  --color-app-text-muted: #6b7280;
+  --color-app-text-dim: #9ca3af;
+  --color-app-lavender: #ddd6fe;
+  --color-app-rose: #fecdd3;
+  --color-app-cyan: #a5f3fc;
+  
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Space Mono", monospace, ui-monospace;
 }
 
 @layer base {
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-  @layer utilities {
-  .animation-delay-2000 {
-    animation-delay: 2s;
+  :root {
+    --bg-canvas: #f8f8f8;
+    --bg-primary: #ffffff;
+    --bg-surface: #ffffff;
+    --bg-surface-hover: #f4f4f5;
+    --accent-lime: #c8f142;
+    --accent-lime-bright: #d4f938;
+    --accent-green: #5dd62c;
+    --border-subtle: #eaeaea;
+    --border-hairline: #e5e7eb;
+    --text-primary: #0f0f0f;
+    --text-muted: #6b7280;
+    --text-dim: #9ca3af;
   }
-  .animation-delay-4000 {
-    animation-delay: 4s;
-  }
-}
 
-body {
-    background-color: #000000;
-    color: white;
-    font-family: var(--font-sans);
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overflow: hidden;
+    overscroll-behavior: none;
+    user-select: none;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+    color: #0f0f0f;
   }
 }
 
-/* Spotify Card Hover Effects */
+/* Design System Component Classes */
 @layer utilities {
-  .spotify-card {
-    background: #181818;
+  /* Minimalist Card */
+  .cohere-card {
+    background-color: #ffffff;
+    border: 1px solid #eaeaea;
+    border-radius: 18px;
     padding: 1rem;
-    border-radius: 1rem;
-    transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+    transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    cursor: pointer;
+  }
+
+  .cohere-card:hover {
+    background-color: #fafafa;
+    border-color: #d4d4d8;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+    transform: translateY(-2px);
+  }
+
+  /* Vibrant Lime Play Button */
+  .cohere-play-btn {
+    width: 44px;
+    height: 44px;
+    background-color: #c8f142;
+    color: #000000;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 14px rgba(200, 241, 66, 0.4);
+    transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .cohere-play-btn:hover {
+    transform: scale(1.06);
+    background-color: #d4f938;
+    box-shadow: 0 6px 18px rgba(200, 241, 66, 0.5);
+  }
+
+  .cohere-play-btn:active {
+    transform: scale(0.95);
+  }
+
+  /* Circular Action Button */
+  .cohere-action-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #0f0f0f;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .cohere-action-btn:hover {
+    background-color: #f4f4f5;
+    border-color: #d4d4d8;
+    color: #337418;
+    transform: scale(1.04);
+  }
+
+  /* Pill Button (Primary) */
+  .cohere-btn-primary {
+    border-radius: 9999px;
+    padding: 8px 20px;
+    background-color: #c8f142;
+    color: #000000;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 3px 12px rgba(200, 241, 66, 0.35);
+    transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    border: none;
+    cursor: pointer;
+  }
+
+  .cohere-btn-primary:hover {
+    background-color: #d4f938;
+    box-shadow: 0 5px 16px rgba(200, 241, 66, 0.45);
+    transform: translateY(-1px);
+  }
+
+  .cohere-btn-primary:active {
+    transform: scale(0.97);
+  }
+
+  /* Pill Button (Outline) */
+  .cohere-btn-outline {
+    border-radius: 9999px;
+    padding: 7px 18px;
+    background-color: #ffffff;
+    color: #0f0f0f;
+    border: 1px solid #e5e7eb;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .cohere-btn-outline:hover {
+    background-color: #f4f4f5;
+    border-color: #d4d4d8;
+    color: #000000;
+  }
+
+  /* Monospace Badge */
+  .cohere-mono-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background-color: rgba(93, 214, 44, 0.15);
+    color: #337418;
+    border: 1px solid rgba(93, 214, 44, 0.3);
+    display: inline-block;
+    font-weight: 700;
+  }
+
+  /* Category Filter Pill */
+  .cohere-filter-pill {
+    padding: 7px 18px;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
     border: 1px solid transparent;
   }
 
-  @keyframes blob {
-    0% {
-      transform: translate(0px, 0px) scale(1);
-    }
-    33% {
-      transform: translate(30px, -50px) scale(1.1);
-    }
-    66% {
-      transform: translate(-20px, 20px) scale(0.9);
-    }
-    100% {
-      transform: translate(0px, 0px) scale(1);
-    }
+  .cohere-filter-pill.active {
+    background-color: #c8f142;
+    color: #000000;
+    font-weight: 700;
+    box-shadow: 0 2px 10px rgba(200, 241, 66, 0.4);
   }
 
-  .animate-blob {
-    animation: blob 7s infinite;
+  .cohere-filter-pill:not(.active) {
+    background-color: #ffffff;
+    color: #4b5563;
+    border-color: #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
   }
 
-  .spotify-card:hover {
-    background: #282828;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
-    transform: translateY(-10px) rotateX(4deg) rotateY(-4deg);
-    border-color: rgba(255,255,255,0.1);
+  .cohere-filter-pill:not(.active):hover {
+    background-color: #f4f4f5;
+    color: #0f0f0f;
+    border-color: #d4d4d8;
   }
 
-  /* 3D Perspective Utils */
-  .perspective-1000 {
-    perspective: 1000px;
-  }
-  
-  .rotate-y-12 {
-    transform: rotateY(12deg);
-  }
-
-  @keyframes float {
-    0% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-20px) rotate(5deg); }
-    100% { transform: translateY(0px) rotate(0deg); }
+  /* Search Input */
+  .cohere-search-input {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 9999px;
+    color: #0f0f0f;
+    font-size: 13px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+    transition: all 0.15s ease;
   }
 
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
+  .cohere-search-input:focus {
+    outline: none;
+    border-color: #5dd62c;
+    box-shadow: 0 0 0 3px rgba(93, 214, 44, 0.2);
   }
 }
 
-@utility spotify-play-btn {
-  width: 48px;
-  height: 48px;
-  background-color: #1DB954;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-  transition: all 0.3s ease;
-  transform: translateY(8px);
-  opacity: 0;
-}
-
-.group:hover .spotify-play-btn {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Custom Scrollbar */
+/* Custom Minimalist Scrollbar */
 ::-webkit-scrollbar {
-  width: 12px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -118,32 +264,21 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsla(0,0%,100%,.3);
-  &:hover {
-    background: hsla(0,0%,100%,.5);
-  }
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
 }
 
-.scrollbar-hide::-webkit-scrollbar {
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.custom-scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
 
-/* WOW Animations */
-@keyframes spotify-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.2; }
-  50% { transform: scale(1.15); opacity: 0.4; }
-}
-
-@keyframes bar-pulse {
-  0%, 100% { height: 20%; }
-  50% { height: 90%; }
-}
-
-.animate-spotify-pulse {
-  animation: spotify-pulse 4s ease-in-out infinite;
-}
-
-.visualizer-bar {
-  @apply w-1 bg-accent-green rounded-full;
-  animation: bar-pulse 0.5s ease-in-out infinite;
+.no-scrollbar,
+.custom-scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

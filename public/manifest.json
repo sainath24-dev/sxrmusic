@@ -1,10 +1,10 @@
 {
-  "name": "SXR Music",
-  "short_name": "SXR",
+  "name": "SxR-Music",
+  "short_name": "SxR-Music",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#F8F8F8",
+  "theme_color": "#F8F8F8",
   "icons": [
     {
       "src": "/icon.png",
@@ -13,6 +13,6 @@
       "purpose": "any maskable"
     }
   ],
-  "description": "Premium Offline Music Experience",
+  "description": "SxR-Music — Premium Modern Music Player",
   "orientation": "portrait"
 }

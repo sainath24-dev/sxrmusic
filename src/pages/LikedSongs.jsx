@@ -1,11 +1,12 @@
 import React from 'react';
 import usePlayerStore from '../store/playerStore';
-import { Play, Heart, Clock, MoreHorizontal, Disc3 } from 'lucide-react';
+import { Play, Heart, Clock, MoreHorizontal, Sparkles } from 'lucide-react';
 import { useContextMenuStore } from '../store/contextMenuStore';
+import { decodeHtml } from '../api/saavn';
 import { clsx } from 'clsx';
 
 const LikedSongs = () => {
-  const { likedSongs, setSong, setQueue, currentSong, toggleLike } = usePlayerStore();
+  const { likedSongs, setSong, setQueue, currentSong, isPlaying, toggleLike } = usePlayerStore();
   const { openMenu } = useContextMenuStore();
 
   const handlePlay = (song, index) => {
@@ -13,123 +14,143 @@ const LikedSongs = () => {
     setSong(song);
   };
 
+  const formatDuration = (secs) => {
+    if (!secs) return '3:20';
+    const total = parseInt(secs, 10);
+    if (isNaN(total)) return secs;
+    const m = Math.floor(total / 60);
+    const s = Math.floor(total % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
   return (
-    <div className="flex flex-col min-h-screen relative pb-32">
-      {/* Massive Crimson Blur Background */}
-      <div className="absolute top-0 left-0 w-full h-[600px] pointer-events-none -z-10 overflow-hidden opacity-50">
-        <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-rose-600 rounded-full blur-[120px]" />
-        <div className="absolute top-[10%] right-[-10%] w-[50%] h-[50%] bg-pink-700 rounded-full blur-[100px]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#121212]/80 to-[#121212]" />
+    <div className="flex flex-col min-h-full bg-[#FFFFFF] text-[#0F0F0F]">
+      {/* Header Banner - Light Spring Green Gradient */}
+      <div className="flex flex-col sm:flex-row gap-6 items-start sm:items-end p-6 sm:p-8 bg-gradient-to-b from-[#E8F8D8] via-[#F4FCED] to-[#FFFFFF] border-b border-[#EAEAEA] min-h-[220px] sm:min-h-[260px]">
+        {/* Heart Artwork Box */}
+        <div className="w-32 h-32 sm:w-44 sm:h-44 md:w-48 md:h-48 bg-gradient-to-br from-[#E2F7C2] via-[#C8F142] to-[#B2E690] rounded-3xl shadow-xl flex items-center justify-center shrink-0 border border-[#5DD62C]/40">
+          <Heart className="w-14 h-14 sm:w-20 sm:h-20 text-[#337418] fill-[#337418] drop-shadow-sm" />
+        </div>
+        
+        <div className="flex flex-col gap-2 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#C8F142]/20 text-[#337418] border border-[#5DD62C]/30 uppercase tracking-wider">PLAYLIST</span>
+            <span className="text-[11px] font-bold text-[#6B7280] tracking-wider uppercase">Personal Collection</span>
+          </div>
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-black text-[#0F0F0F] tracking-tight leading-tight">
+            Liked Songs
+          </h1>
+          <div className="flex items-center gap-2 text-[13px] text-[#6B7280] font-medium mt-1">
+            <span className="font-bold text-[#0F0F0F]">Your Collection</span>
+            <span>•</span>
+            <span className="text-[#337418] font-bold">{likedSongs.length} tracks</span>
+          </div>
+        </div>
       </div>
 
-      <div className="px-6 md:px-12 pt-20">
-        <div className="flex flex-col md:flex-row items-end gap-8 mb-12 relative z-10">
-          <div className="relative group">
-            <div className="absolute inset-0 bg-rose-500 rounded-[32px] blur-2xl opacity-40 group-hover:opacity-70 transition-opacity duration-700 pointer-events-none" />
-            <div className="w-56 h-56 md:w-72 md:h-72 bg-gradient-to-br from-rose-500 via-pink-600 to-purple-700 flex items-center justify-center shadow-[0_20px_50px_rgba(225,29,72,0.5)] rounded-[32px] relative overflow-hidden transform group-hover:scale-105 transition-transform duration-700">
-              <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 mix-blend-overlay transition-opacity duration-500 pointer-events-none" />
-              <Heart className="w-28 h-28 text-white fill-white drop-shadow-2xl animate-[pulse_3s_ease-in-out_infinite]" />
+      {/* Main Content Area */}
+      <div className="p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+        {/* Action Controls */}
+        <div className="flex items-center gap-4">
+          <button 
+            className="w-13 h-13 rounded-full bg-[#C8F142] text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg shadow-[#C8F142]/40 disabled:opacity-40 disabled:hover:scale-100 font-bold"
+            onClick={() => likedSongs.length > 0 && handlePlay(likedSongs[0], 0)}
+            disabled={likedSongs.length === 0}
+            title="Play Liked Songs"
+          >
+            <Play size={22} fill="currentColor" className="ml-0.5" />
+          </button>
+          <span className="text-xs font-semibold text-[#6B7280] uppercase tracking-wider">
+            {likedSongs.length} Saved {likedSongs.length === 1 ? 'Track' : 'Tracks'}
+          </span>
+        </div>
+
+        {/* Tracks Table / List */}
+        {likedSongs.length > 0 ? (
+          <div className="flex flex-col">
+            {/* Table Header */}
+            <div className="grid grid-cols-12 gap-4 px-4 py-2.5 border-b border-[#EAEAEA] text-[11px] font-bold text-[#6B7280] uppercase tracking-wider">
+              <div className="col-span-1 text-center">#</div>
+              <div className="col-span-11 sm:col-span-6 md:col-span-5">Title</div>
+              <div className="hidden sm:block sm:col-span-5 md:col-span-4">Album</div>
+              <div className="hidden md:flex md:col-span-2 justify-end items-center pr-4">
+                <Clock size={14} />
+              </div>
+            </div>
+
+            {/* Song Rows */}
+            <div className="flex flex-col mt-2 space-y-1">
+              {likedSongs.map((song, index) => {
+                const isCurrent = currentSong?.id === song.id;
+
+                return (
+                  <div 
+                    key={`${song.id}-${index}`}
+                    onClick={() => handlePlay(song, index)}
+                    onContextMenu={(e) => openMenu(e, song)}
+                    className={clsx(
+                      "grid grid-cols-12 gap-4 items-center px-4 py-3 rounded-2xl hover:bg-[#F4F4F5] border border-transparent hover:border-[#E5E7EB] group cursor-pointer transition-all duration-150",
+                      isCurrent ? "bg-[#F0FDF4] border-[#5DD62C]/30" : ""
+                    )}
+                  >
+                    {/* Index / Play */}
+                    <div className="col-span-1 text-center text-[13px] text-[#6B7280]">
+                      <span className="group-hover:hidden tabular-nums font-medium">{index + 1}</span>
+                      <Play size={14} fill="#337418" className="hidden group-hover:inline ml-auto mr-auto text-[#337418]" />
+                    </div>
+
+                    {/* Title & Artist */}
+                    <div className="col-span-11 sm:col-span-6 md:col-span-5 flex items-center gap-3.5 min-w-0">
+                      <div className="w-11 h-11 rounded-xl overflow-hidden bg-[#F3F4F6] shrink-0 border border-[#E5E7EB]">
+                        <img src={song.image?.[0]?.url || song.image} alt="" className="w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1 pr-2">
+                        <h4 className={clsx("text-sm font-bold truncate", isCurrent ? "text-[#337418]" : "text-[#0F0F0F]")}>
+                          {decodeHtml(song.name || song.title)}
+                        </h4>
+                        <p className="text-xs text-[#6B7280] truncate font-medium">
+                          {decodeHtml(song.artists?.primary?.[0]?.name || song.subtitle)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Album */}
+                    <div className="hidden sm:block sm:col-span-5 md:col-span-4 text-xs text-[#6B7280] truncate font-medium">
+                      {decodeHtml(song.album?.name || '')}
+                    </div>
+
+                    {/* Duration & Actions */}
+                    <div className="hidden md:flex md:col-span-2 items-center justify-end gap-4 pr-2">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); toggleLike(song); }}
+                        className="p-1 text-[#5DD62C] hover:scale-110 transition-transform"
+                      >
+                        <Heart size={16} fill="currentColor" />
+                      </button>
+                      <span className="text-xs text-[#6B7280] tabular-nums font-medium">
+                        {formatDuration(song.duration)}
+                      </span>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); openMenu(e, song); }}
+                        className="p-1 text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-[#0F0F0F] transition-opacity"
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          
-          <div className="flex flex-col gap-3">
-            <span className="text-[12px] font-black uppercase tracking-[0.3em] bg-white/10 px-4 py-1.5 rounded-full w-max backdrop-blur-md border border-white/20 text-white shadow-lg">Your Collection</span>
-            <h1 className="text-6xl md:text-8xl lg:text-[120px] font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-white/70 drop-shadow-2xl py-2">Liked Songs</h1>
-            <p className="text-white/80 font-bold text-lg md:text-xl flex items-center gap-2">
-              <span>SXR Profile</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-white/40" />
-              <span className="text-rose-300">{likedSongs.length} tracks</span>
-            </p>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-[#F3F4F6] border border-[#E5E7EB] flex items-center justify-center">
+              <Heart size={28} className="text-[#9CA3AF]" />
+            </div>
+            <h3 className="text-xl font-bold text-[#0F0F0F]">Songs you like will appear here</h3>
+            <p className="text-[13px] text-[#6B7280] max-w-sm">Save songs by tapping the heart icon on any track to build your personal library.</p>
           </div>
-        </div>
-
-        {/* Action Bar */}
-        <div className="flex items-center gap-6 mb-12">
-          <button 
-            className="w-16 h-16 rounded-full bg-rose-500 text-white flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-[0_10px_30px_rgba(225,29,72,0.6)] hover:bg-rose-400 group"
-            onClick={() => likedSongs.length > 0 && handlePlay(likedSongs[0], 0)}
-          >
-            <Play className="w-8 h-8 ml-1 drop-shadow-md group-hover:scale-110 transition-transform" fill="currentColor" />
-          </button>
-          
-          <button className="w-12 h-12 rounded-full border border-white/20 text-white flex items-center justify-center hover:border-white hover:bg-white/10 transition-all">
-            <MoreHorizontal size={24} />
-          </button>
-        </div>
-
-        <div className="w-full max-w-[1400px]">
-          {/* Header */}
-          <div className="grid grid-cols-[30px_1fr_1fr_80px] gap-4 px-6 py-4 text-white/50 text-[13px] font-black uppercase tracking-widest border-b border-white/10 mb-4 sticky top-16 bg-[#121212]/90 backdrop-blur-xl z-20">
-            <div className="text-center">#</div>
-            <div>Track</div>
-            <div className="hidden md:block">Album</div>
-            <div className="flex justify-end"><Clock size={16} /></div>
-          </div>
-
-          {/* List */}
-          <div className="flex flex-col gap-2 relative z-10">
-            {likedSongs.length === 0 ? (
-              <div className="text-center text-white/40 py-32 flex flex-col items-center gap-6 bg-white/5 rounded-[32px] border border-white/5 border-dashed">
-                <Heart className="w-24 h-24 opacity-20" />
-                <h2 className="text-2xl font-black text-white/60 tracking-tight">Your heart is empty.</h2>
-                <p className="font-medium text-lg">Find tracks you love and tap the heart icon to build your collection.</p>
-              </div>
-            ) : (
-              likedSongs.map((song, i) => (
-                <div
-                  key={song.id}
-                  onContextMenu={(e) => openMenu(e, song)}
-                  className={clsx(
-                    "group grid grid-cols-[30px_1fr_1fr_80px] gap-4 px-6 py-3 md:py-4 rounded-2xl items-center cursor-pointer transition-all duration-300 border border-transparent",
-                    currentSong?.id === song.id 
-                      ? "bg-rose-500/10 border-rose-500/20 shadow-[inset_0_0_20px_rgba(225,29,72,0.1)]" 
-                      : "hover:bg-white/5 hover:border-white/10 hover:shadow-lg"
-                  )}
-                  onDoubleClick={() => handlePlay(song, i)}
-                >
-                  <div className="text-center text-white/40 font-bold text-base group-hover:hidden w-8">
-                    {currentSong?.id === song.id ? <Disc3 className="w-5 h-5 text-rose-500 animate-spin" /> : i + 1}
-                  </div>
-                  <div className="hidden group-hover:flex items-center justify-center w-8">
-                    <Play className="w-5 h-5 text-white" fill="currentColor" onClick={() => handlePlay(song, i)} />
-                  </div>
-                  
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="relative w-12 h-12 md:w-14 md:h-14 rounded-lg overflow-hidden shrink-0 shadow-md">
-                      <img src={song.image?.[2]?.url || song.image?.[0]?.url || song.image} alt={song.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                      <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
-                    </div>
-                    <div className="flex flex-col min-w-0 flex-1">
-                      <div className={clsx("truncate font-black text-[16px] md:text-[18px]", currentSong?.id === song.id ? 'text-rose-400' : 'text-white')}>
-                        {song.title || song.name}
-                      </div>
-                      <div className="text-[13px] text-white/60 font-medium truncate group-hover:text-white transition-colors">
-                        {song.subtitle || song.primaryArtists || song.artists?.primary?.[0]?.name}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="text-[14px] text-white/50 hidden md:block truncate font-medium group-hover:text-white/80 transition-colors">
-                    {song.album?.name || song.album || "Unknown Album"}
-                  </div>
-                  
-                  <div className="text-[14px] text-white/50 flex items-center justify-end gap-6 font-medium">
-                    <Heart 
-                      className="w-5 h-5 text-rose-500 fill-rose-500 cursor-pointer hover:scale-125 transition-transform" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleLike(song);
-                      }}
-                    />
-                    <div className="w-8 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                       <MoreHorizontal className="w-6 h-6 text-white/50 hover:text-white transition-colors" onClick={(e) => openMenu(e, song)} />
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

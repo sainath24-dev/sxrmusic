@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, ChevronLeft, ChevronRight, Home, Library, Info, Languages, BarChart2, X, Play, Heart } from 'lucide-react';
+import { Search, Bell, ChevronLeft, ChevronRight, Info, Languages, BarChart2, X, Play, Heart, Sparkles } from 'lucide-react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { searchAll, decodeHtml } from '../../api/saavn';
@@ -25,18 +25,18 @@ const TopBar = ({ onToggleRightPanel }) => {
             setSuggestions(res.data);
             setShowSuggestions(true);
           } else {
-             setSuggestions(null);
-             setShowSuggestions(false);
+            setSuggestions(null);
+            setShowSuggestions(false);
           }
         } catch (err) {
-          console.error("Suggestion error:", err);
+          console.warn("Suggestion error:", err);
         }
       } else {
         setSuggestions(null);
         setShowSuggestions(false);
       }
     };
-    const timer = setTimeout(fetchSuggestions, 150); // Faster trigger
+    const timer = setTimeout(fetchSuggestions, 150);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -71,97 +71,153 @@ const TopBar = ({ onToggleRightPanel }) => {
   };
 
   const navLinks = [
-    { name: 'Home', path: '/', icon: Home },
-    { name: 'Search', path: '/search', icon: Search },
-    { name: 'Library', path: '/library', icon: Library },
-    { name: 'Liked', path: '/liked', icon: Heart },
-    { name: 'Discover', path: '/discover', icon: Languages },
-    { name: 'Stats', path: '/stats', icon: BarChart2 },
+    { name: 'Discover', path: '/discover' },
+    { name: 'Artists', path: '/artists' },
+    { name: 'Stats', path: '/stats' },
   ];
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 bg-black/90 backdrop-blur-xl sticky top-0 z-[999] gap-8 border-b border-white/5">
-      <div className="flex items-center gap-4 shrink-0">
-        <Logo className="xl:hidden scale-75 -ml-4" />
+    <header className="h-16 flex items-center justify-between px-3 sm:px-6 bg-[#F8F8F8] border-b border-[#EAEAEA] sticky top-0 z-[800] gap-3 sm:gap-6">
+      {/* Left Branding & History Controls */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <Logo className="scale-90 sm:scale-100" />
         
-        <div className="hidden sm:flex items-center gap-2 mr-4">
-          <button onClick={() => navigate(-1)} className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-text-subdued hover:text-white transition-colors"><ChevronLeft size={24} /></button>
-          <button onClick={() => navigate(1)} className="w-8 h-8 rounded-full bg-black/40 flex items-center justify-center text-text-subdued hover:text-white transition-colors"><ChevronRight size={24} /></button>
+        <div className="hidden md:flex items-center gap-1.5 ml-2">
+          <button 
+            onClick={() => navigate(-1)} 
+            className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] flex items-center justify-center text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm transition-colors"
+            title="Go back"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button 
+            onClick={() => navigate(1)} 
+            className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] flex items-center justify-center text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm transition-colors"
+            title="Go forward"
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
-
-        <nav className="hidden xl:flex items-center gap-1">
-          {navLinks.map((link) => (
-            <Link key={link.name} to={link.path} className={clsx("flex items-center gap-2 px-4 py-2 rounded-full text-[14px] font-bold transition-all", location.pathname === link.path ? "bg-white text-black shadow-lg" : "text-text-subdued hover:text-white hover:bg-white/5")}>
-              <link.icon size={18} />
-              {link.name}
-            </Link>
-          ))}
-        </nav>
       </div>
 
-      <div className="relative flex-1 max-w-2xl mx-auto" ref={dropdownRef}>
-        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-text-subdued z-10 pointer-events-none"><Search size={20} /></div>
+      {/* Center Search Bar with Cohere Pill Styling */}
+      <div className="relative flex-1 max-w-lg mx-auto" ref={dropdownRef}>
+        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] z-10 pointer-events-none">
+          <Search size={16} />
+        </div>
         <input 
           type="text" 
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleSearch}
           onFocus={() => query.length > 0 && setShowSuggestions(true)}
-          placeholder="What do you want to play?" 
-          className="w-full h-11 pl-12 pr-12 bg-[#242424] hover:bg-[#2a2a2a] border border-transparent focus:border-white/30 focus:bg-[#2c2c2c] rounded-full text-[15px] font-medium text-white focus:outline-none transition-all shadow-inner"
+          placeholder="Search tracks, artists, albums..." 
+          className="cohere-search-input w-full h-10 pl-10 pr-9 text-sm font-medium placeholder-[#9CA3AF]"
         />
         {query && (
-          <button onClick={() => { setQuery(''); setSuggestions(null); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-text-subdued hover:text-white z-10"><X size={20} /></button>
+          <button 
+            onClick={() => { setQuery(''); setSuggestions(null); }} 
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#0F0F0F] z-10 p-1"
+          >
+            <X size={15} />
+          </button>
         )}
 
-        {/* Suggestions Dropdown - ENSURED HIGH Z-INDEX AND VISIBILITY */}
+        {/* Suggestions Dropdown */}
         {showSuggestions && suggestions && (
-          <div className="absolute top-[calc(100%+8px)] left-[-10vw] sm:left-0 w-[120vw] sm:w-full max-w-[100vw] sm:max-w-none bg-[#181818] border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] overflow-hidden animate-fade-in max-h-[75vh] overflow-y-auto z-[1000]">
+          <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#FFFFFF] border border-[#E5E7EB] rounded-2xl shadow-xl overflow-hidden max-h-[70vh] overflow-y-auto z-[1000]">
             {suggestions.songs?.results?.length > 0 && (
               <div className="p-2">
-                <h4 className="px-4 py-3 text-[11px] font-black text-text-subdued uppercase tracking-[0.2em]">Songs</h4>
-                {suggestions.songs.results.slice(0, 6).map(song => (
-                  <div key={song.id} onClick={() => handleSelectSuggestion(song, 'songs')} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/10 cursor-pointer group transition-colors">
-                    <div className="relative w-12 h-12 shrink-0">
-                      <img src={song.image?.[0]?.url} className="w-full h-full rounded shadow-md object-cover" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"><Play size={16} fill="white" /></div>
+                <h4 className="px-3 py-1.5 text-[11px] font-bold text-[#337418] uppercase tracking-wider">Songs</h4>
+                {suggestions.songs.results.slice(0, 5).map((song, idx) => (
+                  <div 
+                    key={`${song.id}-${idx}`} 
+                    onClick={() => handleSelectSuggestion(song, 'songs')} 
+                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#F4F4F5] cursor-pointer group transition-colors"
+                  >
+                    <div className="relative w-9 h-9 shrink-0 rounded-lg overflow-hidden bg-[#F3F4F6] border border-[#E5E7EB]">
+                      <img src={song.image?.[0]?.url || song.image} className="w-full h-full object-cover" alt="" />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                        <Play size={13} fill="white" className="text-white ml-0.5" />
+                      </div>
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[15px] font-bold text-white truncate">{decodeHtml(song.name || song.title)}</p>
-                      <p className="text-[13px] text-text-subdued truncate group-hover:text-white">{decodeHtml(song.artists?.primary?.[0]?.name || song.artists?.all?.[0]?.name || song.subtitle)}</p>
+                      <p className="text-sm font-semibold text-[#0F0F0F] truncate group-hover:text-[#337418] transition-colors">{decodeHtml(song.name || song.title)}</p>
+                      <p className="text-xs text-[#6B7280] truncate">
+                        {decodeHtml(song.artists?.primary?.[0]?.name || song.subtitle)}
+                      </p>
                     </div>
                   </div>
                 ))}
               </div>
             )}
             {suggestions.artists?.results?.length > 0 && (
-              <div className="p-2 border-t border-white/5">
-                <h4 className="px-4 py-3 text-[11px] font-black text-text-subdued uppercase tracking-[0.2em]">Artists</h4>
-                {suggestions.artists.results.slice(0, 4).map(artist => (
-                  <div key={artist.id} onClick={() => handleSelectSuggestion(artist, 'artists')} className="flex items-center gap-4 p-3 rounded-xl hover:bg-white/10 cursor-pointer group transition-colors">
-                    <img src={artist.image?.[0]?.url || artist.image?.[0]} className="w-12 h-12 rounded-full shadow-md object-cover shrink-0" />
-                    <p className="text-[15px] font-bold text-white truncate group-hover:text-accent-green">{decodeHtml(artist.name || artist.title)}</p>
+              <div className="p-2 border-t border-[#EAEAEA]">
+                <h4 className="px-3 py-1.5 text-[11px] font-bold text-[#337418] uppercase tracking-wider">Artists</h4>
+                {suggestions.artists.results.slice(0, 3).map((artist, idx) => (
+                  <div 
+                    key={`${artist.id}-${idx}`} 
+                    onClick={() => handleSelectSuggestion(artist, 'artists')} 
+                    className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#F4F4F5] cursor-pointer group transition-colors"
+                  >
+                    <img src={artist.image?.[0]?.url || artist.image?.[0]} className="w-8 h-8 rounded-full object-cover shrink-0 border border-[#E5E7EB]" alt="" />
+                    <p className="text-sm font-semibold text-[#0F0F0F] truncate group-hover:text-[#337418]">{decodeHtml(artist.name || artist.title)}</p>
                   </div>
                 ))}
               </div>
             )}
             {!suggestions.songs?.results?.length && !suggestions.artists?.results?.length && (
-              <div className="p-8 text-center text-text-subdued italic">No instant matches found. Press Enter to search deeper.</div>
+              <div className="p-5 text-center text-[#6B7280] text-xs">Press Enter to search.</div>
             )}
           </div>
         )}
       </div>
 
-      <div className="hidden sm:flex items-center gap-4 shrink-0">
-        <button onClick={onToggleRightPanel} className="p-2.5 rounded-full bg-[#242424] text-text-subdued hover:text-white hover:bg-[#2c2c2c] transition-all"><Info size={22} /></button>
-        <button className="p-2.5 rounded-full bg-[#242424] text-text-subdued hover:text-white hover:bg-[#2c2c2c] transition-all relative" onClick={() => navigate('/stats')}>
-          <Bell size={22} />
-          <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-accent-green rounded-full border-2 border-black" />
+      {/* Right Desktop Actions */}
+      <div className="hidden sm:flex items-center gap-2 shrink-0">
+        <nav className="hidden lg:flex items-center gap-1.5 mr-2">
+          {navLinks.map((link) => (
+            <Link 
+              key={link.name} 
+              to={link.path} 
+              className={clsx(
+                "px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all",
+                location.pathname === link.path 
+                  ? "bg-[#C8F142] text-black shadow-sm font-bold" 
+                  : "text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#FFFFFF] border border-transparent hover:border-[#E5E7EB]"
+              )}
+            >
+              {link.name}
+            </Link>
+          ))}
+        </nav>
+
+        <button 
+          onClick={onToggleRightPanel} 
+          className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm flex items-center justify-center transition-all"
+          title="Info & Lyrics"
+        >
+          <Info size={16} />
         </button>
-        <div className="w-10 h-10 ml-2 rounded-full bg-gradient-to-br from-accent-green to-emerald-600 text-black flex items-center justify-center font-black hover:scale-110 transition-all text-[15px] shadow-lg cursor-pointer">S</div>
+        <button 
+          className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm flex items-center justify-center transition-all relative" 
+          onClick={() => navigate('/stats')}
+          title="Stats & Activity"
+        >
+          <Bell size={16} />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#5DD62C] rounded-full" />
+        </button>
+        <div 
+          onClick={() => navigate('/library')}
+          className="w-8 h-8 rounded-full bg-[#FFFFFF] border-2 border-[#5DD62C] text-[#337418] shadow-sm flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-[#C8F142] hover:text-black transition-colors"
+          title="Library"
+        >
+          S
+        </div>
       </div>
     </header>
   );
 };
 
 export default TopBar;
+

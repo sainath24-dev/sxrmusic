@@ -107,10 +107,10 @@ const usePlayerStore = create(
       },
 
       // Playlist Actions
-      createPlaylist: (name) => {
+      createPlaylist: (name, sourceUrl = null) => {
         const id = Date.now().toString();
         set((state) => ({
-          playlists: [...state.playlists, { id, name, songs: [] }]
+          playlists: [...state.playlists, { id, name, sourceUrl, songs: [] }]
         }));
         return id;
       },

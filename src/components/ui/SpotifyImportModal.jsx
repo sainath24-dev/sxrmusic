@@ -1,148 +1,291 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, List, Link as LinkIcon } from 'lucide-react';
+import { X, Loader2, List, Link as LinkIcon, Music, CheckCircle2, Square, StopCircle, Info } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import usePlayerStore from '../../store/playerStore';
 import { searchSongs } from '../../api/saavn';
 import { clsx } from 'clsx';
 
+function cleanSongTitle(raw) {
+  if (!raw) return '';
+  return raw
+    .replace(/official\s*(music)?\s*(video|audio|lyric|lyrics|track)/gi, ' ')
+    .replace(/full\s*(video|audio|song)/gi, ' ')
+    .replace(/video\s*song/gi, ' ')
+    .replace(/\b(video|song|audio|lyrics|lyrical|hd|4k|remastered|visualizer|feat\.|ft\.)\b/gi, ' ')
+    .replace(/[\[\(\{].*?[\]\}\)]/g, ' ')
+    .replace(/[\|\-–—•:\/\\_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   const [url, setUrl] = useState('');
   const [manualText, setManualText] = useState('');
+  const [customName, setCustomName] = useState('');
+  const [trackLimit, setTrackLimit] = useState('all'); // Default to 'all' (unlimited)
   const [importMode, setImportMode] = useState('link'); // 'link' | 'text'
   const [isImporting, setIsImporting] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const { createPlaylist, addSongToPlaylist } = usePlayerStore();
+  const [progress, setProgress] = useState({ current: 0, total: 0, added: 0, skipped: 0, status: '' });
+  
+  const isCancelledRef = useRef(false);
+  const { playlists, createPlaylist, addSongToPlaylist, deletePlaylist } = usePlayerStore();
+
+  // Helper to fetch HTML through local server proxy or resilient CORS proxies
+  const fetchHtmlWithProxy = async (targetUrl) => {
+    const proxies = [
+      `/api/proxy?url=${encodeURIComponent(targetUrl)}`,
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+      `https://corsproxy.org/?url=${encodeURIComponent(targetUrl)}`,
+      `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`,
+      `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(targetUrl)}`
+    ];
+
+    for (const proxyUrl of proxies) {
+      if (isCancelledRef.current) return null;
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(proxyUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          if (proxyUrl.includes('api.allorigins.win/get')) {
+            const json = await res.json();
+            if (json.contents) return json.contents;
+          } else {
+            const text = await res.text();
+            if (text && text.length > 50) return text;
+          }
+        }
+      } catch (e) {
+        console.warn(`Proxy ${proxyUrl.slice(0, 35)} failed:`, e.message);
+      }
+    }
+    return null;
+  };
+
+  // Helper to extract YouTube video IDs from a string or multiline text
+  const extractYoutubeVideoIds = (text) => {
+    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/gi;
+    const matches = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      if (!matches.includes(match[1])) {
+        matches.push(match[1]);
+      }
+    }
+    return matches;
+  };
+
+  // Helper to fetch YouTube video title via oEmbed
+  const fetchYoutubeVideoTitle = async (videoId) => {
+    try {
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      const res = await fetch(oembedUrl);
+      if (res.ok) {
+        const data = await res.json();
+        return data.title || null;
+      }
+    } catch (e) {
+      console.warn(`oEmbed failed for video ${videoId}:`, e);
+    }
+    return null;
+  };
+
+  // Helper to fetch Spotify Track / Album title via oEmbed
+  const fetchSpotifyOembed = async (spotifyUrl) => {
+    try {
+      const oembedUrl = `https://open.spotify.com/oembed?url=${encodeURIComponent(spotifyUrl)}`;
+      const res = await fetch(oembedUrl);
+      if (res.ok) {
+        const data = await res.json();
+        return data.title || null;
+      }
+    } catch (e) {
+      console.warn(`Spotify oEmbed failed for ${spotifyUrl}:`, e);
+    }
+    return null;
+  };
+
+  const handleCancel = () => {
+    isCancelledRef.current = true;
+    toast('Cancelling import...', { icon: '🛑' });
+  };
 
   const handleImport = async () => {
+    isCancelledRef.current = false;
     let trackList = [];
-    let playlistName = "Imported Playlist";
+    let defaultPlaylistName = "Imported Playlist";
 
     if (importMode === 'text') {
       if (!manualText.trim()) {
-        toast.error('Please enter some song titles');
-        return;
-      }
-      trackList = manualText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-      playlistName = "Manual Import";
-    } else {
-      const isSpotify = url.includes('spotify.com');
-      const isYoutube = url.includes('youtube.com') || url.includes('youtu.be');
-
-      if (!isSpotify && !isYoutube) {
-        toast.error('Please enter a valid Spotify or YouTube Playlist URL');
+        toast.error('Please enter song titles or links');
         return;
       }
 
       setIsImporting(true);
+      setProgress({ current: 0, total: 0, added: 0, skipped: 0, status: 'Parsing input...' });
+
+      const lines = manualText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      const extractedTitles = [];
+
+      for (const line of lines) {
+        if (isCancelledRef.current) break;
+        const ytIds = extractYoutubeVideoIds(line);
+        if (ytIds.length > 0) {
+          for (const id of ytIds) {
+            if (isCancelledRef.current) break;
+            const title = await fetchYoutubeVideoTitle(id);
+            if (title) extractedTitles.push(title);
+          }
+        } else if (line.includes('spotify.com/track/')) {
+          const title = await fetchSpotifyOembed(line);
+          if (title) extractedTitles.push(title);
+        } else {
+          extractedTitles.push(line);
+        }
+      }
+
+      if (isCancelledRef.current) {
+        setIsImporting(false);
+        toast('Import cancelled');
+        return;
+      }
+
+      trackList = extractedTitles;
+      defaultPlaylistName = customName.trim() || "Manual Import";
+    } else {
+      const input = url.trim();
+      const isSpotify = input.includes('spotify.com');
+      const isYoutube = input.includes('youtube.com') || input.includes('youtu.be');
+
+      if (!isSpotify && !isYoutube) {
+        toast.error('Please enter valid Spotify or YouTube links');
+        return;
+      }
+
+      setIsImporting(true);
+      setProgress({ current: 0, total: 0, added: 0, skipped: 0, status: 'Analyzing links...' });
+
       try {
         if (isSpotify) {
-          let embedUrl = url;
-          if (url.includes('spotify.com/playlist/')) {
-            const playlistId = url.split('playlist/')[1].split('?')[0];
-            embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
-          } else if (url.includes('spotify.com/album/')) {
-            const albumId = url.split('album/')[1].split('?')[0];
-            embedUrl = `https://open.spotify.com/embed/album/${albumId}`;
-          }
+          if (input.includes('spotify.com/track/')) {
+            // Single track import
+            const title = await fetchSpotifyOembed(input);
+            if (title) {
+              trackList = [title];
+              defaultPlaylistName = `Track: ${title}`;
+            }
+          } else {
+            let embedUrl = input;
+            if (input.includes('spotify.com/playlist/')) {
+              const playlistId = input.split('playlist/')[1].split('?')[0];
+              embedUrl = `https://open.spotify.com/embed/playlist/${playlistId}`;
+            } else if (input.includes('spotify.com/album/')) {
+              const albumId = input.split('album/')[1].split('?')[0];
+              embedUrl = `https://open.spotify.com/embed/album/${albumId}`;
+            }
 
-          const proxies = [
-            `https://corsproxy.io/?url=${encodeURIComponent(embedUrl)}`,
-            `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(embedUrl)}`
-          ];
+            const htmlText = await fetchHtmlWithProxy(embedUrl);
+            if (isCancelledRef.current) {
+              setIsImporting(false);
+              return;
+            }
 
-          let htmlText = null;
-          for (const proxyUrl of proxies) {
-            try {
-              const response = await fetch(proxyUrl);
-              if (response.ok) {
-                htmlText = await response.text();
-                break;
+            if (!htmlText) throw new Error("Failed to fetch Spotify playlist. Make sure the playlist is public.");
+
+            const match = htmlText.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
+            if (match) {
+              const nextData = JSON.parse(match[1]);
+              const entity = nextData?.props?.pageProps?.state?.data?.entity;
+              if (entity && entity.trackList && entity.trackList.length > 0) {
+                defaultPlaylistName = entity.name || entity.title || "Spotify Import";
+                trackList = entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim());
               }
-            } catch (e) {
-              console.warn('Proxy failed, trying next...');
+            }
+
+            if (trackList.length === 0) {
+              // Fallback to oembed
+              const oembedTitle = await fetchSpotifyOembed(input);
+              if (oembedTitle) {
+                trackList = [oembedTitle];
+                defaultPlaylistName = oembedTitle;
+              } else {
+                throw new Error("Could not extract tracks from Spotify playlist. Ensure it is public.");
+              }
             }
           }
-          if (!htmlText) throw new Error("Failed to fetch playlist data due to CORS or Proxy blocking.");
-
-          const match = htmlText.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
-          if (!match) throw new Error("Could not find playlist data. Make sure it's public.");
-
-          const nextData = JSON.parse(match[1]);
-          const entity = nextData?.props?.pageProps?.state?.data?.entity;
-
-          if (!entity || !entity.trackList || entity.trackList.length === 0) {
-            throw new Error("No playable tracks found in this Spotify playlist.");
-          }
-          
-          playlistName = entity.name || "Spotify Import";
-          trackList = entity.trackList.map(t => `${t.title} ${t.subtitle || ''}`.trim());
-          
         } else if (isYoutube) {
-          const proxies = [
-            `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-            `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`
-          ];
+          const ytIds = extractYoutubeVideoIds(input);
+          const isStandardPlaylist = input.includes('list=PL') || input.includes('list=UU') || input.includes('list=OLAK5uy_');
 
-          let htmlText = null;
-          for (const proxyUrl of proxies) {
-            try {
-              const response = await fetch(proxyUrl);
-              if (response.ok) {
-                htmlText = await response.text();
-                break;
+          if (isStandardPlaylist) {
+            const htmlText = await fetchHtmlWithProxy(input);
+            if (isCancelledRef.current) {
+              setIsImporting(false);
+              return;
+            }
+
+            if (htmlText) {
+              let match = htmlText.match(/var\s+ytInitialData\s*=\s*(\{.+?\});\s*<\/script>/s);
+              if (!match) match = htmlText.match(/window\["ytInitialData"\]\s*=\s*(\{.+?\});\s*<\/script>/s);
+              
+              if (match) {
+                const data = JSON.parse(match[1]);
+                const titles = [];
+                
+                const searchForTracks = (obj) => {
+                  if (!obj || typeof obj !== 'object' || isCancelledRef.current) return;
+                  if (obj.playlistVideoRenderer && obj.playlistVideoRenderer.title) {
+                    const title = obj.playlistVideoRenderer.title.runs?.[0]?.text;
+                    const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+                    if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
+                  } else if (obj.musicResponsiveListItemRenderer) {
+                    const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
+                    if (flexColumns && flexColumns.length > 0) {
+                      const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
+                      let artist = '';
+                      if (flexColumns.length > 1) {
+                        artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
+                      }
+                      if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
+                    }
+                  } else if (obj.gridVideoRenderer && obj.gridVideoRenderer.title) {
+                    const title = obj.gridVideoRenderer.title.runs?.[0]?.text;
+                    const artist = obj.gridVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
+                    if (title) titles.push(`${title} ${artist}`.trim());
+                  }
+                  Object.values(obj).forEach(val => searchForTracks(val));
+                };
+                
+                searchForTracks(data);
+                if (titles.length > 0) {
+                  trackList = [...new Set(titles)];
+                  const titleMatch = htmlText.match(/<title>(.*?)<\/title>/);
+                  if (titleMatch) defaultPlaylistName = titleMatch[1].replace(' - YouTube', '').replace(' - YouTube Music', '');
+                }
               }
-            } catch (e) {
-              console.warn('Proxy failed, trying next...');
             }
           }
-          
-          if (!htmlText) throw new Error("Failed to fetch YouTube data due to CORS or Proxy blocking.");
-          
-          let match = htmlText.match(/var\s+ytInitialData\s*=\s*(\{.+?\});\s*<\/script>/s);
-          if (!match) match = htmlText.match(/window\["ytInitialData"\]\s*=\s*(\{.+?\});\s*<\/script>/s);
-          
-          if (!match) throw new Error("Could not parse YouTube playlist data. It may be private or protected.");
-          
-          const data = JSON.parse(match[1]);
-          const titles = [];
-          
-          const searchForTracks = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            
-            if (obj.playlistVideoRenderer && obj.playlistVideoRenderer.title) {
-              const title = obj.playlistVideoRenderer.title.runs?.[0]?.text;
-              const artist = obj.playlistVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-              if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
-            } 
-            else if (obj.musicResponsiveListItemRenderer) {
-              const flexColumns = obj.musicResponsiveListItemRenderer.flexColumns;
-              if (flexColumns && flexColumns.length > 0) {
-                const title = flexColumns[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.[0]?.text;
-                let artist = '';
-                if (flexColumns.length > 1) {
-                  artist = flexColumns[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.map(r => r.text).join('') || '';
-                }
-                if (title && title !== '[Private video]') titles.push(`${title} ${artist}`.trim());
+
+          // Multi-video link fallback via direct oEmbed
+          if (trackList.length === 0 && ytIds.length > 0) {
+            setProgress({ current: 0, total: ytIds.length, added: 0, skipped: 0, status: 'Fetching video details...' });
+            for (let i = 0; i < ytIds.length; i++) {
+              if (isCancelledRef.current) break;
+              const videoTitle = await fetchYoutubeVideoTitle(ytIds[i]);
+              if (videoTitle) {
+                trackList.push(videoTitle);
               }
+              setProgress({ current: i + 1, total: ytIds.length, added: 0, skipped: 0, status: `Fetched ${i + 1}/${ytIds.length} titles` });
             }
-            else if (obj.gridVideoRenderer && obj.gridVideoRenderer.title) {
-              const title = obj.gridVideoRenderer.title.runs?.[0]?.text;
-              const artist = obj.gridVideoRenderer.shortBylineText?.runs?.[0]?.text || '';
-              if (title) titles.push(`${title} ${artist}`.trim());
-            }
-            
-            Object.values(obj).forEach(val => searchForTracks(val));
-          };
-          
-          searchForTracks(data);
-          
-          const titleMatch = htmlText.match(/<title>(.*?)<\/title>/);
-          if (titleMatch) playlistName = titleMatch[1].replace(' - YouTube', '').replace(' - YouTube Music', '');
-          
-          if (titles.length === 0) throw new Error("No tracks found. Make sure the YouTube playlist is public.");
-          
-          trackList = [...new Set(titles)]; // Deduplicate
+            defaultPlaylistName = `YouTube Mix (${trackList.length} tracks)`;
+          }
+
+          if (trackList.length === 0 && !isCancelledRef.current) {
+            throw new Error("Could not extract tracks from YouTube. Ensure links are public.");
+          }
         }
       } catch (err) {
         console.error(err);
@@ -152,35 +295,134 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
       }
     }
 
+    if (isCancelledRef.current) {
+      setIsImporting(false);
+      toast('Import cancelled');
+      return;
+    }
+
+    // Apply track limit if selected and not 'all'
+    if (trackLimit !== 'all') {
+      const maxLimit = parseInt(trackLimit, 10);
+      if (!isNaN(maxLimit) && trackList.length > maxLimit) {
+        trackList = trackList.slice(0, maxLimit);
+      }
+    }
+
     if (trackList.length === 0) {
+      toast.error('No tracks found to import');
       setIsImporting(false);
       return;
     }
 
+    const finalPlaylistName = customName.trim() || defaultPlaylistName;
+    const sourceIdentifier = importMode === 'link' ? url.trim() : null;
+
+    // Check if an existing playlist matches this name or source link
+    const existingPlaylist = playlists.find(p => {
+      if (sourceIdentifier && p.sourceUrl && p.sourceUrl === sourceIdentifier) return true;
+      return p.name.toLowerCase().trim() === finalPlaylistName.toLowerCase().trim();
+    });
+
+    const isExisting = !!existingPlaylist;
+    const playlistId = existingPlaylist ? existingPlaylist.id : createPlaylist(finalPlaylistName, sourceIdentifier);
+
+    // Build sets of existing songs to skip duplicates
+    const existingSongIds = new Set((existingPlaylist?.songs || []).map(s => s.id));
+    const existingSongKeys = new Set(
+      (existingPlaylist?.songs || []).map(s => {
+        const title = (s.name || s.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const artist = (s.artists?.primary?.[0]?.name || s.subtitle || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return `${title}-${artist.slice(0, 10)}`;
+      })
+    );
+
     setIsImporting(true);
-    setProgress({ current: 0, total: trackList.length });
-    const playlistId = createPlaylist(playlistName);
+    setProgress({ 
+      current: 0, 
+      total: trackList.length, 
+      added: 0, 
+      skipped: 0, 
+      status: isExisting ? `Checking for new songs in "${existingPlaylist.name}"...` : 'Matching & saving tracks...' 
+    });
 
     let addedCount = 0;
+    let skippedCount = 0;
+
     for (let i = 0; i < trackList.length; i++) {
-      const query = trackList[i].replace(/[\[\]\(\)]/g, ''); // Clean up brackets for better search
+      if (isCancelledRef.current) {
+        break;
+      }
+
+      const rawTitle = trackList[i];
+      const cleaned = cleanSongTitle(rawTitle);
+      const query = cleaned.split(' ').slice(0, 6).join(' '); // Best match query
+      
+      setProgress({ 
+        current: i + 1, 
+        total: trackList.length, 
+        added: addedCount,
+        skipped: skippedCount,
+        status: `Matching: ${cleaned.slice(0, 32)}...` 
+      });
+
       try {
+        let matchedSong = null;
         const res = await searchSongs(query, 1);
         if (res.success && res.data?.results?.length > 0) {
-          addSongToPlaylist(playlistId, res.data.results[0]);
-          addedCount++;
+          matchedSong = res.data.results[0];
+        } else {
+          // Fallback search with raw title
+          const fbRes = await searchSongs(rawTitle.replace(/[\[\]\(\)]/g, ''), 1);
+          if (fbRes.success && fbRes.data?.results?.length > 0) {
+            matchedSong = fbRes.data.results[0];
+          }
+        }
+
+        if (matchedSong) {
+          const songKey = `${(matchedSong.name || matchedSong.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${(matchedSong.artists?.primary?.[0]?.name || matchedSong.subtitle || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10)}`;
+
+          if (existingSongIds.has(matchedSong.id) || existingSongKeys.has(songKey)) {
+            // Already present in the playlist
+            skippedCount++;
+          } else {
+            addSongToPlaylist(playlistId, matchedSong);
+            existingSongIds.add(matchedSong.id);
+            existingSongKeys.add(songKey);
+            addedCount++;
+          }
         }
       } catch (e) {
         console.error("Failed to find track:", query);
       }
-      setProgress({ current: i + 1, total: trackList.length });
     }
 
-    if (addedCount > 0) {
-      toast.success(`Successfully imported ${addedCount} tracks to "${playlistName}"!`);
+    if (isCancelledRef.current) {
+      if (addedCount > 0) {
+        toast.success(`Import stopped. Added ${addedCount} new tracks to "${finalPlaylistName}".`);
+      } else {
+        if (!isExisting) deletePlaylist(playlistId);
+        toast('Import cancelled.');
+      }
     } else {
-      toast.error("Could not find matching songs for this playlist on our servers.");
+      if (isExisting) {
+        if (addedCount > 0) {
+          toast.success(`Added ${addedCount} new track${addedCount > 1 ? 's' : ''} to "${existingPlaylist.name}" (${skippedCount} already present)!`);
+        } else if (skippedCount > 0) {
+          toast.success(`All ${skippedCount} tracks are already in "${existingPlaylist.name}". Everything is up to date!`);
+        } else {
+          toast.error("Could not match any tracks for this playlist.");
+        }
+      } else {
+        if (addedCount > 0) {
+          toast.success(`Successfully imported ${addedCount} tracks to "${finalPlaylistName}"!`);
+        } else {
+          deletePlaylist(playlistId);
+          toast.error("Could not find matching songs for this playlist on our servers.");
+        }
+      }
     }
+
     onClose();
     setIsImporting(false);
   };
@@ -188,101 +430,163 @@ const SpotifyImportModal = ({ type = 'spotify', onClose }) => {
   const isYoutubeMode = type === 'youtube' || (importMode === 'link' && (url.includes('youtube.com') || url.includes('youtu.be')));
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-      <div className="bg-[#181818] w-full max-w-md rounded-2xl p-6 border border-white/10 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-black text-white flex items-center gap-3">
-            {isYoutubeMode ? (
-              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-red-600 fill-current">
-                <path d="M2.5 7.1c.3-1.2 1.3-2.1 2.5-2.4C8.4 4.1 12 4.1 12 4.1s3.6 0 7 .6c1.2.3 2.2 1.2 2.5 2.4.6 2.3.6 7.1.6 7.1s0 4.8-.6 7.1c-.3 1.2-1.3 2.1-2.5 2.4-3.4.6-7 .6-7 .6s-3.6 0-7-.6c-1.2-.3-2.2-1.2-2.5-2.4-.6-2.3-.6-7.1-.6-7.1s0-4.8.6-7.1z"/>
-                <path d="M9.7 15.8l6.5-3.6-6.5-3.6v7.2z" fill="#181818" stroke="none"/>
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" className="w-8 h-8 text-[#1DB954]" fill="currentColor">
-                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.24 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.6.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
-              </svg>
-            )}
-            Import Playlist
-          </h2>
-          <button onClick={onClose} className="text-text-subdued hover:text-white" disabled={isImporting}><X size={24} /></button>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[1200] flex items-center justify-center p-4 select-none" onClick={isImporting ? handleCancel : onClose}>
+      <div className="bg-[#FFFFFF] text-[#0F0F0F] w-full max-w-md rounded-2xl p-6 border border-[#EAEAEA] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-5">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-[#C8F142]/25 text-[#337418] border border-[#5DD62C]/30">IMPORT</span>
+            <h2 className="text-lg font-bold text-[#0F0F0F]">
+              Import Playlist / Tracks
+            </h2>
+          </div>
+          <button 
+            onClick={isImporting ? handleCancel : onClose} 
+            className="text-[#6B7280] hover:text-[#0F0F0F] p-1.5 rounded-full bg-[#F3F4F6] hover:bg-[#E5E7EB] transition-colors"
+            title={isImporting ? "Cancel Import" : "Close"}
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {!isImporting ? (
           <div className="flex flex-col gap-4">
-            <div className="flex bg-[#282828] p-1 rounded-xl">
+            <div className="flex bg-[#F3F4F6] p-1 rounded-full border border-[#E5E7EB]">
               <button 
                 onClick={() => setImportMode('link')}
                 className={clsx(
-                  "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold transition-all",
-                  importMode === 'link' ? "bg-[#383838] text-white shadow-lg" : "text-text-subdued hover:text-white"
+                  "flex-1 flex items-center justify-center gap-2 py-1.5 rounded-full text-[12px] font-bold transition-all",
+                  importMode === 'link' ? "bg-[#FFFFFF] text-[#0F0F0F] shadow-sm border border-[#E5E7EB]" : "text-[#6B7280] hover:text-[#0F0F0F]"
                 )}
               >
-                <LinkIcon size={18} />
-                Link
+                <LinkIcon size={14} />
+                Link(s)
               </button>
               <button 
                 onClick={() => setImportMode('text')}
                 className={clsx(
-                  "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-bold transition-all",
-                  importMode === 'text' ? "bg-[#383838] text-white shadow-lg" : "text-text-subdued hover:text-white"
+                  "flex-1 flex items-center justify-center gap-2 py-1.5 rounded-full text-[12px] font-bold transition-all",
+                  importMode === 'text' ? "bg-[#FFFFFF] text-[#0F0F0F] shadow-sm border border-[#E5E7EB]" : "text-[#6B7280] hover:text-[#0F0F0F]"
                 )}
               >
-                <List size={18} />
-                Manual
+                <List size={14} />
+                Manual / Titles
               </button>
             </div>
 
             {importMode === 'link' ? (
               <>
-                <p className="text-sm text-text-subdued leading-relaxed">
-                  Paste a public <strong>{isYoutubeMode ? 'YouTube / YT Music' : 'Spotify'}</strong> Playlist link below. We will scan the tracks and rebuild it here!
+                <p className="text-[13px] text-[#6B7280] leading-relaxed">
+                  Paste <strong className="text-[#0F0F0F]">Spotify</strong> or <strong className="text-[#0F0F0F]">YouTube</strong> playlist/mix links. Tracks are resolved to lossless streams.
                 </p>
-                <input
-                  type="text"
-                  placeholder={isYoutubeMode ? "https://youtube.com/playlist?list=..." : "https://open.spotify.com/playlist/..."}
+                <textarea
+                  rows={3}
+                  placeholder={isYoutubeMode 
+                    ? "Paste YouTube playlist URL or multiple video URLs (one per line)..." 
+                    : "https://open.spotify.com/playlist/... or https://youtube.com/watch?v=..."}
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="w-full bg-[#282828] text-white rounded-lg px-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-white/50 border border-transparent transition-all"
+                  className="w-full bg-[#F9FAFB] text-[#0F0F0F] placeholder-[#9CA3AF] rounded-xl px-4 py-2.5 text-[13px] focus:outline-none border border-[#E5E7EB] focus:border-[#5DD62C] transition-all resize-none font-mono text-[12px]"
                 />
               </>
             ) : (
               <>
-                <p className="text-sm text-text-subdued leading-relaxed">
-                  Paste a list of song titles (one per line). We will search for them and create your playlist!
+                <p className="text-[13px] text-[#6B7280] leading-relaxed">
+                  Paste song titles or YouTube links (one per line) to rebuild into a playlist.
                 </p>
                 <textarea
-                  rows={5}
-                  placeholder="Song Title - Artist&#10;Another Song&#10;..."
+                  rows={4}
+                  placeholder="Song Title - Artist&#10;https://youtube.com/watch?v=...&#10;Another Song..."
                   value={manualText}
                   onChange={(e) => setManualText(e.target.value)}
-                  className="w-full bg-[#282828] text-white rounded-lg px-4 py-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-white/50 border border-transparent transition-all resize-none"
+                  className="w-full bg-[#F9FAFB] text-[#0F0F0F] placeholder-[#9CA3AF] rounded-xl px-4 py-2.5 text-[13px] focus:outline-none border border-[#E5E7EB] focus:border-[#5DD62C] transition-all resize-none font-mono text-[12px]"
                 />
               </>
             )}
 
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold text-[#6B7280] uppercase tracking-wider mb-1 block">
+                  Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="My Imported Mix"
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value)}
+                  className="w-full bg-[#F9FAFB] text-[#0F0F0F] placeholder-[#9CA3AF] rounded-xl px-3 py-2 text-[12px] border border-[#E5E7EB] focus:outline-none focus:border-[#5DD62C]"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-[#6B7280] uppercase tracking-wider mb-1 block">
+                  Max Tracks
+                </label>
+                <select
+                  value={trackLimit}
+                  onChange={(e) => setTrackLimit(e.target.value)}
+                  className="w-full bg-[#F9FAFB] text-[#0F0F0F] rounded-xl px-3 py-2 text-[12px] focus:outline-none border border-[#E5E7EB] focus:border-[#5DD62C] font-semibold"
+                >
+                  <option value="all">Unlimited (All Tracks)</option>
+                  <option value="500">Up to 500 tracks</option>
+                  <option value="200">Up to 200 tracks</option>
+                  <option value="100">Up to 100 tracks</option>
+                  <option value="50">Up to 50 tracks</option>
+                  <option value="25">Up to 25 tracks</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-2 p-2.5 rounded-xl bg-[#F0FDF4] border border-[#5DD62C]/30 text-[11px] text-[#337418] leading-snug">
+              <Info size={14} className="text-[#337418] shrink-0 mt-0.5" />
+              <span>
+                Imports automatically ignore duplicates if you re-import or update the same playlist.
+              </span>
+            </div>
+
             <button
               onClick={handleImport}
-              className={clsx(
-                "w-full text-black font-black py-3 rounded-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 mt-2",
-                isYoutubeMode ? "bg-white" : "bg-[#1DB954]"
-              )}
+              className="w-full py-2.5 mt-1 text-[13px] flex items-center justify-center gap-2 font-bold rounded-full bg-[#C8F142] text-black hover:bg-[#d4f85e] shadow-md shadow-[#C8F142]/30 transition-all cursor-pointer"
             >
+              <CheckCircle2 size={16} />
               Start Import
             </button>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-8 gap-4 animate-fade-in">
-            <Loader2 size={48} className={clsx("animate-spin mb-2", isYoutubeMode ? "text-red-500" : "text-[#1DB954]")} />
-            <h3 className="text-xl font-bold text-white">Rebuilding Playlist...</h3>
-            <p className="text-text-subdued">
-              Matching track {progress.current} of {progress.total}
-            </p>
-            <div className="w-full bg-white/10 h-2 rounded-full mt-4 overflow-hidden">
-              <div 
-                className={clsx("h-full transition-all duration-300", isYoutubeMode ? "bg-red-500" : "bg-[#1DB954]")}
-                style={{ width: `${(progress.current / Math.max(progress.total, 1)) * 100}%` }}
-              />
+          <div className="flex flex-col items-center justify-center py-6 gap-4">
+            <Loader2 size={36} className="animate-spin text-[#337418] mb-1" />
+            <div className="text-center">
+              <h3 className="text-base font-bold text-[#0F0F0F]">Rebuilding Playlist...</h3>
+              <p className="text-[12px] text-[#337418] mt-1 max-w-[90%] truncate font-bold">
+                {progress.status}
+              </p>
             </div>
+
+            <div className="w-full bg-[#F9FAFB] p-3.5 rounded-xl border border-[#E5E7EB] flex flex-col gap-2">
+              <div className="flex justify-between text-[11px] text-[#6B7280] font-semibold">
+                <span>Progress: {progress.current} / {progress.total}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[#337418] font-bold">{progress.added} new</span>
+                  {progress.skipped > 0 && (
+                    <span className="text-[#9CA3AF]">({progress.skipped} existing)</span>
+                  )}
+                </div>
+              </div>
+              <div className="w-full bg-[#E5E7EB] h-2 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-[#5DD62C] transition-all duration-300 rounded-full"
+                  style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 30}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Cancel Button */}
+            <button
+              onClick={handleCancel}
+              className="w-full py-2.5 px-4 rounded-full border border-[#E5E7EB] bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#0F0F0F] text-[12px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all mt-1"
+            >
+              <StopCircle size={15} />
+              Stop & Save ({progress.added} tracks)
+            </button>
           </div>
         )}
       </div>

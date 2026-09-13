@@ -2,12 +2,15 @@ import { useEffect } from 'react';
 import usePlayerStore from '../store/playerStore';
 
 export const useKeyboardShortcuts = () => {
-  const { isPlaying, setPlaying, nextSong, prevSong, volume, setVolume, toggleMute } = usePlayerStore();
+  const { 
+    isPlaying, setPlaying, nextSong, prevSong, 
+    volume, setVolume, toggleMute, toggleFullScreen 
+  } = usePlayerStore();
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Ignore if user is typing in an input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      // Ignore when typing in input or textarea
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
 
       switch (e.code) {
         case 'Space':
@@ -41,6 +44,9 @@ export const useKeyboardShortcuts = () => {
         case 'KeyM':
           toggleMute();
           break;
+        case 'KeyF':
+          toggleFullScreen();
+          break;
         default:
           break;
       }
@@ -48,5 +54,5 @@ export const useKeyboardShortcuts = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, setPlaying, nextSong, prevSong, volume, setVolume, toggleMute]);
+  }, [isPlaying, setPlaying, nextSong, prevSong, volume, setVolume, toggleMute, toggleFullScreen]);
 };

@@ -6,7 +6,7 @@ const GlassCard = ({ children, className, onClick }) => {
     <div 
       onClick={onClick}
       className={clsx(
-        "glass-card p-6 flex flex-col gap-4",
+        "cohere-card p-6 flex flex-col gap-4",
         className
       )}
     >

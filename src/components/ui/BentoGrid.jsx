@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Heart, Download, TrendingUp, Clock, Star, Mic2, Music2 } from 'lucide-react';
+import { Play, Heart, Download, TrendingUp, Clock, Music2, MoreHorizontal, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import usePlayerStore from '../../store/playerStore';
 import useDownloadStore from '../../store/downloadStore';
@@ -7,8 +7,8 @@ import { decodeHtml } from '../../api/saavn';
 import { useNavigate } from 'react-router-dom';
 
 const BentoGrid = ({ trendingSongs = [] }) => {
-  const { history, likedSongs, followedArtists, setSong, setQueue } = usePlayerStore();
-  const { downloadedSongs } = useDownloadStore();
+  const { history, likedSongs, setSong, setQueue, toggleLike } = usePlayerStore();
+  const { downloadedSongs, toggleDownload, downloadedIds } = useDownloadStore();
   const navigate = useNavigate();
 
   const handlePlaySong = (song, list) => {
@@ -17,95 +17,166 @@ const BentoGrid = ({ trendingSongs = [] }) => {
     setSong(song);
   };
 
-  const featuredSong = trendingSongs[0];
+  const featuredSong = trendingSongs[0] || null;
+  const isLiked = featuredSong ? likedSongs.some(s => s.id === featuredSong.id) : false;
+  const isDownloaded = featuredSong ? downloadedIds.includes(featuredSong.id) : false;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-auto md:grid-rows-2 gap-4 h-auto md:h-[600px] mb-12">
-      {/* 1. Featured Artist / Now Playing (Large 2x2) */}
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8 select-none">
+      {/* 1. Curated & Trending Hero Card (Lavender Aesthetic from Image 3) */}
       <div 
-        className="md:col-span-2 md:row-span-2 bg-[#181818] rounded-[2rem] overflow-hidden relative group cursor-pointer border border-white/5 shadow-2xl"
-        onClick={() => featuredSong && handlePlaySong(featuredSong, trendingSongs)}
+        className="lg:col-span-7 rounded-3xl p-6 sm:p-7 relative overflow-hidden bg-gradient-to-br from-[#d8b4fe] via-[#c4b5fd] to-[#a78bfa] text-[#141414] shadow-xl flex flex-col justify-between min-h-[260px] sm:min-h-[290px] group transition-transform duration-200"
       >
+        {/* Subtle decorative background art cut-out */}
         {featuredSong && (
-          <img 
-            src={featuredSong.image?.[2]?.url} 
-            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700"
-            alt=""
-          />
+          <div className="absolute right-0 top-0 bottom-0 w-1/2 overflow-hidden pointer-events-none opacity-85 group-hover:scale-105 transition-transform duration-500">
+            <img 
+              src={featuredSong.image?.[2]?.url || featuredSong.image?.[1]?.url || featuredSong.image} 
+              className="w-full h-full object-cover object-center rounded-l-3xl mix-blend-multiply filter contrast-125" 
+              alt="" 
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#c4b5fd] via-[#c4b5fd]/40 to-transparent" />
+          </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-        <div className="absolute bottom-8 left-8 right-8 z-10">
-          <div className="flex items-center gap-2 text-accent-green font-bold text-xs uppercase tracking-widest mb-2">
-            <TrendingUp size={14} />
-            Trending Now
-          </div>
-          <h2 className="text-4xl md:text-6xl font-black text-white mb-2 leading-tight">
-            {featuredSong ? decodeHtml(featuredSong.name) : "Ready to Play?"}
-          </h2>
-          <p className="text-white/60 text-lg font-medium mb-6">
-            {featuredSong ? decodeHtml(featuredSong.artists?.primary?.[0]?.name) : "Discover the latest hits"}
-          </p>
-          <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center text-black hover:scale-110 active:scale-95 transition-all shadow-xl">
-            <Play size={32} fill="currentColor" className="ml-1" />
-          </div>
-        </div>
-      </div>
 
-      {/* 2. Recently Played (Wide 2x1) */}
-      <div className="md:col-span-2 bg-[#181818] rounded-[2rem] p-6 border border-white/5 relative overflow-hidden group">
-        <div className="flex items-center justify-between mb-4 relative z-10">
-          <h3 className="text-xl font-bold flex items-center gap-2">
-            <Clock size={20} className="text-blue-400" />
-            Recents
-          </h3>
-          <button onClick={() => navigate('/history')} className="text-xs font-bold text-white/40 hover:text-white uppercase tracking-wider">View All</button>
+        <div className="relative z-10 max-w-sm">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/10 backdrop-blur-md text-xs font-semibold text-black/80 mb-3">
+            <Sparkles size={13} className="text-black" />
+            Curated & trending
+          </div>
+          
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#0f0f0f] leading-snug font-display line-clamp-2">
+            {featuredSong ? decodeHtml(featuredSong.name || featuredSong.title) : "Discover Weekly"}
+          </h2>
+          <p className="text-black/70 text-xs sm:text-sm font-medium mt-1 mb-6 line-clamp-2">
+            {featuredSong ? decodeHtml(featuredSong.artists?.primary?.[0]?.name || featuredSong.subtitle) : "The original slow instrumental best playlists curated for your vibe."}
+          </p>
         </div>
-        <div className="flex gap-4 overflow-x-auto no-scrollbar relative z-10 h-[calc(100%-40px)]">
-          {history.slice(0, 4).map((song) => (
-            <div 
-              key={song.id} 
-              onClick={() => handlePlaySong(song, history)}
-              className="flex-shrink-0 w-24 h-full flex flex-col gap-2 group/item cursor-pointer"
-            >
-              <div className="aspect-square bg-white/5 rounded-xl overflow-hidden relative shadow-lg">
-                <img src={song.image?.[1]?.url} className="w-full h-full object-cover group-hover/item:scale-110 transition-transform" alt="" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/item:opacity-100 flex items-center justify-center transition-opacity">
-                  <Play size={20} fill="white" className="text-white" />
-                </div>
-              </div>
-              <p className="text-[11px] font-bold truncate px-1">{decodeHtml(song.name)}</p>
-            </div>
-          ))}
-          {history.length === 0 && (
-            <div className="flex flex-col items-center justify-center w-full h-full text-white/20">
-              <Music2 size={40} strokeWidth={1} />
-              <p className="text-xs font-bold mt-2 tracking-widest uppercase">Start Listening</p>
-            </div>
+
+        {/* Action Controls on Lavender Card */}
+        <div className="relative z-10 flex items-center gap-3">
+          <button 
+            onClick={() => featuredSong && handlePlaySong(featuredSong, trendingSongs)}
+            className="w-12 h-12 rounded-full bg-[#141414] text-white flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg hover:bg-black"
+            title="Play"
+          >
+            <Play size={20} fill="currentColor" className="ml-0.5" />
+          </button>
+
+          {featuredSong && (
+            <>
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleLike(featuredSong); }}
+                className={clsx(
+                  "w-10 h-10 rounded-full flex items-center justify-center transition-all bg-black/10 hover:bg-black/20 text-[#141414]",
+                  isLiked && "text-[#141414]"
+                )}
+                title="Save to Liked"
+              >
+                <Heart size={18} fill={isLiked ? "currentColor" : "none"} />
+              </button>
+
+              <button 
+                onClick={(e) => { e.stopPropagation(); toggleDownload(featuredSong); }}
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-all bg-black/10 hover:bg-black/20 text-[#141414]"
+                title="Download"
+              >
+                <Download size={18} />
+              </button>
+
+              <button 
+                onClick={() => navigate('/discover')}
+                className="w-10 h-10 rounded-full flex items-center justify-center transition-all bg-black/10 hover:bg-black/20 text-[#141414]"
+                title="Explore More"
+              >
+                <MoreHorizontal size={18} />
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {/* 3. Liked Songs (Square 1x1) */}
-      <div 
-        onClick={() => navigate('/library')}
-        className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-[2rem] p-6 flex flex-col justify-end gap-2 relative group cursor-pointer overflow-hidden shadow-xl"
-      >
-        <Heart size={80} className="absolute -right-4 -top-4 opacity-20 rotate-12 group-hover:scale-110 transition-transform duration-700" fill="white" />
-        <h3 className="text-2xl font-black text-white">Liked</h3>
-        <p className="text-white/70 text-xs font-bold uppercase tracking-widest">{likedSongs.length} Tracks</p>
-      </div>
+      {/* 2. Recently Played / Quick Mix Panel */}
+      <div className="lg:col-span-5 bg-[#FFFFFF] border border-[#EAEAEA] rounded-3xl p-5 sm:p-6 flex flex-col justify-between shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-[#0F0F0F] flex items-center gap-2 uppercase tracking-wider">
+            <Clock size={16} className="text-[#337418]" />
+            Recent Activity
+          </h3>
+          <button 
+            onClick={() => navigate('/stats')} 
+            className="text-xs font-semibold text-[#6B7280] hover:text-[#337418] uppercase tracking-wider transition-colors"
+          >
+            Stats →
+          </button>
+        </div>
 
-      {/* 4. Downloads (Square 1x1) */}
-      <div 
-        onClick={() => navigate('/library')}
-        className="bg-gradient-to-br from-emerald-500 to-teal-700 rounded-[2rem] p-6 flex flex-col justify-end gap-2 relative group cursor-pointer overflow-hidden shadow-xl"
-      >
-        <Download size={80} className="absolute -right-4 -top-4 opacity-20 -rotate-12 group-hover:scale-110 transition-transform duration-700" fill="white" />
-        <h3 className="text-2xl font-black text-white">Offline</h3>
-        <p className="text-white/70 text-xs font-bold uppercase tracking-widest">{downloadedSongs.length} Songs</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          {history.slice(0, 4).map((song, idx) => {
+            const imgUrl = song.image?.[1]?.url || song.image?.[0]?.url || song.image;
+            return (
+              <div 
+                key={`${song.id}-${idx}`} 
+                onClick={() => handlePlaySong(song, history)}
+                className="bg-[#F8F8F8] hover:bg-[#F3F4F6] border border-[#E5E7EB] p-2 rounded-2xl flex flex-col gap-1.5 cursor-pointer group transition-colors shadow-sm"
+              >
+                <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden relative">
+                  {imgUrl ? (
+                    <img src={imgUrl} className="w-full h-full object-cover" alt="" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-[#F3F4F6]">
+                      <Music2 size={20} className="text-[#9CA3AF]" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Play size={16} fill="white" className="text-white ml-0.5" />
+                  </div>
+                </div>
+                <p className="text-xs font-semibold text-[#0F0F0F] truncate">{decodeHtml(song.name || song.title)}</p>
+              </div>
+            );
+          })}
+
+          {history.length === 0 && (
+            <div className="col-span-4 flex flex-col items-center justify-center py-6 text-[#9CA3AF]">
+              <Music2 size={28} className="opacity-40" />
+              <p className="text-xs font-semibold mt-2 uppercase tracking-wider">Play music to see history</p>
+            </div>
+          )}
+        </div>
+
+        {/* Quick Liked & Offline Row */}
+        <div className="grid grid-cols-2 gap-2.5 mt-3 pt-3 border-t border-[#EAEAEA]">
+          <div 
+            onClick={() => navigate('/liked')}
+            className="bg-[#F8F8F8] hover:bg-[#F3F4F6] border border-[#E5E7EB] p-3 rounded-2xl flex items-center gap-2.5 cursor-pointer transition-colors shadow-sm"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#E8F8D8] border border-[#5DD62C]/40 flex items-center justify-center text-[#337418]">
+              <Heart size={15} fill="#337418" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-[#0F0F0F] truncate">Liked</p>
+              <p className="text-[11px] text-[#6B7280]">{likedSongs.length} tracks</p>
+            </div>
+          </div>
+
+          <div 
+            onClick={() => navigate('/library')}
+            className="bg-[#F8F8F8] hover:bg-[#F3F4F6] border border-[#E5E7EB] p-3 rounded-2xl flex items-center gap-2.5 cursor-pointer transition-colors shadow-sm"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#E5E7EB] border border-[#D1D5DB] flex items-center justify-center text-[#0F0F0F]">
+              <Download size={15} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-[#0F0F0F] truncate">Downloads</p>
+              <p className="text-[11px] text-[#6B7280]">{downloadedSongs.length} tracks</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
 export default BentoGrid;
+

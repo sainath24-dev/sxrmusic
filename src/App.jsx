@@ -19,18 +19,19 @@ import Queue from './pages/Queue';
 import LikedSongs from './pages/LikedSongs';
 import MobileBottomNav from './components/layout/MobileBottomNav';
 import ContextMenu from './components/ui/ContextMenu';
-import usePlayerStore from './store/playerStore';
 import { useColorTheme } from './hooks/useColorTheme';
 import { useVibeQueue } from './hooks/useVibeQueue';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import FullScreenPlayer from './components/ui/FullScreenPlayer';
 import { clsx } from 'clsx';
+import usePlayerStore from './store/playerStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
       retry: 1,
+      staleTime: 1000 * 60 * 5, // 5 minutes cache
     },
   },
 });
@@ -39,42 +40,25 @@ const App = () => {
   const { currentSong } = usePlayerStore();
   const [showRightPanel, setShowRightPanel] = useState(false);
   
-  useColorTheme(currentSong?.image?.[1]?.url);
+  useColorTheme(currentSong?.image?.[1]?.url || currentSong?.image?.[0]?.url);
   useVibeQueue();
   useKeyboardShortcuts();
 
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="flex flex-col h-screen bg-black text-white overflow-hidden relative">
-          {/* Apple Music Style Ambient Background */}
-          {currentSong && (
-            <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-              <div 
-                className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full mix-blend-screen filter blur-[100px] opacity-40 animate-blob"
-                style={{ backgroundColor: 'var(--dynamic-glow)' }}
-              />
-              <div 
-                className="absolute top-[20%] -right-[10%] w-[60vw] h-[60vw] rounded-full mix-blend-screen filter blur-[120px] opacity-30 animate-blob animation-delay-2000"
-                style={{ backgroundColor: 'var(--dynamic-glow)' }}
-              />
-              <div 
-                className="absolute -bottom-[20%] left-[20%] w-[80vw] h-[80vw] rounded-full mix-blend-screen filter blur-[150px] opacity-20 animate-blob animation-delay-4000"
-                style={{ backgroundColor: 'var(--dynamic-glow)' }}
-              />
-            </div>
-          )}
-
-          {/* Top Navigation */}
+        <div className="flex flex-col h-[100dvh] w-screen bg-[#F8F8F8] text-[#0F0F0F] overflow-hidden relative select-none">
+          {/* Top Navigation Bar */}
           <TopBar onToggleRightPanel={() => setShowRightPanel(!showRightPanel)} />
 
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left Sidebar */}
+          {/* Main App Container */}
+          <div className="flex-1 flex overflow-hidden p-2 pt-0 gap-2">
+            {/* Left Sidebar (Desktop) */}
             <Sidebar />
 
-            {/* Main Content Area */}
-            <main className="flex-1 min-w-0 overflow-y-auto custom-scrollbar relative bg-[#121212] rounded-lg mx-2 mb-2">
-              <div className="max-w-[1400px] mx-auto min-h-full pb-[160px] xl:pb-20">
+            {/* Central Scrollable Content Area */}
+            <main className="flex-1 min-w-0 overflow-y-auto custom-scrollbar relative bg-[#FFFFFF] rounded-2xl border border-[#EAEAEA] shadow-sm">
+              <div className="max-w-[1500px] mx-auto min-h-full pb-36 lg:pb-24">
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/search" element={<Search />} />
@@ -83,6 +67,7 @@ const App = () => {
                   <Route path="/library" element={<Library />} />
                   <Route path="/stats" element={<Stats />} />
                   <Route path="/discover" element={<Languages />} />
+                  <Route path="/languages" element={<Languages />} />
                   <Route path="/artists" element={<AllArtists />} />
                   <Route path="/liked" element={<LikedSongs />} />
                   <Route path="/queue" element={<Queue />} />
@@ -90,31 +75,45 @@ const App = () => {
               </div>
             </main>
 
-            {/* Right Panel (Details & Lyrics) */}
+            {/* Right Panel Drawer (Lyrics & Info) */}
             <div 
               className={clsx(
-                "transition-all duration-300 ease-in-out h-full overflow-hidden mb-2",
-                showRightPanel ? "w-[350px] opacity-100 mr-2" : "w-0 opacity-0"
+                "hidden xl:block transition-all duration-200 ease-in-out h-full overflow-hidden rounded-2xl bg-[#FFFFFF] border border-[#EAEAEA] shadow-sm",
+                showRightPanel ? "w-[360px] opacity-100" : "w-0 opacity-0 pointer-events-none border-none"
               )}
             >
               <RightPanel onClose={() => setShowRightPanel(false)} />
             </div>
           </div>
 
-          {/* Mobile Bottom Navigation */}
+          {/* Mobile Bottom Navigation Bar */}
           <MobileBottomNav />
 
-          {/* Player Bar */}
+          {/* Bottom Player Bar (Desktop + Mobile Floating Player) */}
           <PlayerBar onToggleLyrics={() => setShowRightPanel(!showRightPanel)} isLyricsOpen={showRightPanel} />
           
           {/* Global Context Menu */}
           <ContextMenu />
           
-          {/* Full Screen Reels Player */}
+          {/* Full Screen Player */}
           <FullScreenPlayer />
         </div>
 
-        <Toaster position="bottom-center" />
+        <Toaster 
+          position="bottom-center"
+          toastOptions={{
+            style: {
+              background: '#0F0F0F',
+              color: '#F8F8F8',
+              border: '1px solid #282828',
+              borderRadius: '9999px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+              fontSize: '13px',
+              fontWeight: '600',
+              padding: '8px 20px',
+            },
+          }}
+        />
       </Router>
     </QueryClientProvider>
   );

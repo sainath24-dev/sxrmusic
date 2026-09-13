@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Bell, ChevronLeft, ChevronRight, Info, Languages, BarChart2, X, Play, Heart, Sparkles } from 'lucide-react';
-import { useNavigate, Link, useLocation } from 'react-router-dom';
+import { Search, Bell, ChevronLeft, ChevronRight, X, Play } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { searchAll, decodeHtml } from '../../api/saavn';
 import usePlayerStore from '../../store/playerStore';
 import Logo from '../ui/Logo';
 
-const TopBar = ({ onToggleRightPanel }) => {
+const TopBar = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -69,12 +68,6 @@ const TopBar = ({ onToggleRightPanel }) => {
     setShowSuggestions(false);
     setQuery('');
   };
-
-  const navLinks = [
-    { name: 'Discover', path: '/discover' },
-    { name: 'Artists', path: '/artists' },
-    { name: 'Stats', path: '/stats' },
-  ];
 
   return (
     <header className="h-16 flex items-center justify-between px-3 sm:px-6 bg-[#F8F8F8] border-b border-[#EAEAEA] sticky top-0 z-[800] gap-3 sm:gap-6">
@@ -174,31 +167,7 @@ const TopBar = ({ onToggleRightPanel }) => {
       </div>
 
       {/* Right Desktop Actions */}
-      <div className="hidden sm:flex items-center gap-2 shrink-0">
-        <nav className="hidden lg:flex items-center gap-1.5 mr-2">
-          {navLinks.map((link) => (
-            <Link 
-              key={link.name} 
-              to={link.path} 
-              className={clsx(
-                "px-3.5 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all",
-                location.pathname === link.path 
-                  ? "bg-[#C8F142] text-black shadow-sm font-bold" 
-                  : "text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#FFFFFF] border border-transparent hover:border-[#E5E7EB]"
-              )}
-            >
-              {link.name}
-            </Link>
-          ))}
-        </nav>
-
-        <button 
-          onClick={onToggleRightPanel} 
-          className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm flex items-center justify-center transition-all"
-          title="Info & Lyrics"
-        >
-          <Info size={16} />
-        </button>
+      <div className="flex items-center gap-2 shrink-0">
         <button 
           className="w-8 h-8 rounded-full bg-[#FFFFFF] border border-[#E5E7EB] text-[#6B7280] hover:text-[#0F0F0F] hover:bg-[#F3F4F6] shadow-sm flex items-center justify-center transition-all relative" 
           onClick={() => navigate('/stats')}

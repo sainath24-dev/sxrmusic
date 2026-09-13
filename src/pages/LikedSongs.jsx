@@ -1,6 +1,6 @@
 import React from 'react';
 import usePlayerStore from '../store/playerStore';
-import { Play, Heart, Clock, MoreHorizontal, Sparkles } from 'lucide-react';
+import { Play, Heart, Clock, MoreHorizontal, Sparkles, Trash2 } from 'lucide-react';
 import { useContextMenuStore } from '../store/contextMenuStore';
 import { decodeHtml } from '../api/saavn';
 import { clsx } from 'clsx';
@@ -120,19 +120,21 @@ const LikedSongs = () => {
                     </div>
 
                     {/* Duration & Actions */}
-                    <div className="hidden md:flex md:col-span-2 items-center justify-end gap-4 pr-2">
+                    <div className="col-span-11 sm:col-span-5 md:col-span-2 flex items-center justify-end gap-3 pr-2">
                       <button 
                         onClick={(e) => { e.stopPropagation(); toggleLike(song); }}
-                        className="p-1 text-[#5DD62C] hover:scale-110 transition-transform"
+                        className="p-1.5 text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                        title="Remove from Liked Songs"
                       >
-                        <Heart size={16} fill="currentColor" />
+                        <Trash2 size={16} />
                       </button>
-                      <span className="text-xs text-[#6B7280] tabular-nums font-medium">
+                      <span className="text-xs text-[#6B7280] tabular-nums font-medium hidden sm:inline">
                         {formatDuration(song.duration)}
                       </span>
                       <button 
                         onClick={(e) => { e.stopPropagation(); openMenu(e, song); }}
-                        className="p-1 text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-[#0F0F0F] transition-opacity"
+                        className="p-1.5 text-[#9CA3AF] hover:text-[#0F0F0F] transition-colors"
+                        title="More options"
                       >
                         <MoreHorizontal size={16} />
                       </button>

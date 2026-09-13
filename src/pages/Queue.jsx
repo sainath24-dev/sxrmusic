@@ -1,12 +1,12 @@
 import React from 'react';
 import usePlayerStore from '../store/playerStore';
-import { Play, MoreHorizontal, Heart, ListMusic, Music2 } from 'lucide-react';
+import { Play, MoreHorizontal, Heart, ListMusic, Music2, Trash2 } from 'lucide-react';
 import { useContextMenuStore } from '../store/contextMenuStore';
 import { decodeHtml } from '../api/saavn';
 import { clsx } from 'clsx';
 
 const Queue = () => {
-  const { queue, queueIndex, currentSong, isPlaying, setSong, setQueue, toggleLike, likedSongs } = usePlayerStore();
+  const { queue, queueIndex, currentSong, isPlaying, setSong, setQueue, toggleLike, likedSongs, removeFromQueue } = usePlayerStore();
   const { openMenu } = useContextMenuStore();
   
   const upcomingSongs = queue.slice(queueIndex + 1);
@@ -122,10 +122,11 @@ const Queue = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <button 
                       onClick={(e) => { e.stopPropagation(); toggleLike(song); }}
-                      className={clsx("p-1.5 transition-transform hover:scale-110", isLiked ? "text-[#5DD62C]" : "text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-[#0F0F0F]")}
+                      className={clsx("p-1.5 transition-transform hover:scale-110", isLiked ? "text-[#5DD62C]" : "text-[#9CA3AF] hover:text-[#0F0F0F]")}
+                      title={isLiked ? "Unlike" : "Like"}
                     >
                       <Heart size={15} fill={isLiked ? "#5DD62C" : "none"} />
                     </button>
@@ -133,8 +134,16 @@ const Queue = () => {
                       {formatDuration(song.duration)}
                     </span>
                     <button 
+                      onClick={(e) => { e.stopPropagation(); removeFromQueue(actualIndex); }}
+                      className="p-1.5 text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                      title="Remove from queue"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    <button 
                       onClick={(e) => { e.stopPropagation(); openMenu(e, song); }}
-                      className="p-1.5 text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-[#0F0F0F] transition-opacity"
+                      className="p-1.5 text-[#9CA3AF] hover:text-[#0F0F0F] transition-colors"
+                      title="More options"
                     >
                       <MoreHorizontal size={16} />
                     </button>

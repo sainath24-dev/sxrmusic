@@ -131,6 +131,23 @@ const usePlayerStore = create(
             : p
         )
       })),
+      removeFromQueue: (indexToRemove) => {
+        const { queue, queueIndex } = get();
+        const newQueue = queue.filter((_, idx) => idx !== indexToRemove);
+        let newIndex = queueIndex;
+        if (indexToRemove < queueIndex) {
+          newIndex = Math.max(0, queueIndex - 1);
+        } else if (indexToRemove === queueIndex) {
+          if (newQueue.length === 0) {
+            set({ queue: [], queueIndex: 0, currentSong: null, isPlaying: false });
+            return;
+          }
+          if (newIndex >= newQueue.length) newIndex = 0;
+          set({ queue: newQueue, queueIndex: newIndex, currentSong: newQueue[newIndex] });
+          return;
+        }
+        set({ queue: newQueue, queueIndex: newIndex });
+      },
     }),
     {
       name: 'sxr-music-player-v2',

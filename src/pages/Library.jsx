@@ -10,8 +10,8 @@ import SpotifyImportModal from '../components/ui/SpotifyImportModal';
 
 const Library = () => {
   const navigate = useNavigate();
-  const { playlists, createPlaylist, deletePlaylist, removeSongFromPlaylist, setSong, setQueue, likedSongs, currentSong } = usePlayerStore();
-  const { downloadedSongs } = useDownloadStore();
+  const { playlists, createPlaylist, deletePlaylist, removeSongFromPlaylist, setSong, setQueue, likedSongs, toggleLike, currentSong } = usePlayerStore();
+  const { downloadedSongs, toggleDownload } = useDownloadStore();
   const [activePlaylistId, setActivePlaylistId] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [showImport, setShowImport] = useState(null);
@@ -187,20 +187,44 @@ const Library = () => {
                     </div>
                   </div>
 
-                  {/* Circular Play Button on the Right */}
+                  {/* Action Buttons on the Right: Play + Delete */}
                   <div className="flex items-center gap-2 shrink-0">
-                    <div className="w-10 h-10 rounded-full bg-[#F3F4F6] group-hover:bg-[#C8F142] group-hover:text-black text-[#0F0F0F] flex items-center justify-center transition-all border border-[#E5E7EB] group-hover:border-transparent shadow-sm font-bold">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#F3F4F6] group-hover:bg-[#C8F142] group-hover:text-black text-[#0F0F0F] flex items-center justify-center transition-all border border-[#E5E7EB] group-hover:border-transparent shadow-sm font-bold">
                       <Play size={15} fill="currentColor" className="ml-0.5" />
                     </div>
 
-                    {activePlaylistId !== 'liked' && activePlaylistId !== 'downloads' && (
+                    {activePlaylistId === 'liked' ? (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleLike(song);
+                          toast.success("Removed from Liked Songs");
+                        }}
+                        className="p-2 text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                        title="Remove from Liked Songs"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    ) : activePlaylistId === 'downloads' ? (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleDownload(song);
+                        }}
+                        className="p-2 text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                        title="Delete Download"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    ) : (
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
                           removeSongFromPlaylist(activePlaylistId, song.id);
+                          toast.success("Removed from playlist");
                         }}
-                        className="p-2 text-[#9CA3AF] opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity"
-                        title="Remove from playlist"
+                        className="p-2 text-[#9CA3AF] hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
+                        title="Delete from playlist"
                       >
                         <Trash2 size={16} />
                       </button>

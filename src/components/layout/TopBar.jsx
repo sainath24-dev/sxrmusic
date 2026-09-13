@@ -5,7 +5,7 @@ import { clsx } from 'clsx';
 import { searchAll, decodeHtml } from '../../api/saavn';
 import usePlayerStore from '../../store/playerStore';
 import Logo from '../ui/Logo';
-import UpdatesModal, { APP_UPDATES } from '../ui/UpdatesModal';
+import UpdatesModal, { SXR_NOTIFICATIONS } from '../ui/UpdatesModal';
 
 const TopBar = () => {
   const navigate = useNavigate();
@@ -20,7 +20,7 @@ const TopBar = () => {
   useEffect(() => {
     try {
       const lastReadId = localStorage.getItem('sxr_last_read_update');
-      if (lastReadId !== APP_UPDATES[0]?.id) {
+      if (lastReadId !== SXR_NOTIFICATIONS[0]?.id) {
         setHasUnread(true);
       }
     } catch {
@@ -195,12 +195,12 @@ const TopBar = () => {
               setShowUpdates(nextState);
               if (hasUnread) {
                 try {
-                  localStorage.setItem('sxr_last_read_update', APP_UPDATES[0]?.id || 'read');
+                  localStorage.setItem('sxr_last_read_update', SXR_NOTIFICATIONS[0]?.id || 'read');
                   setHasUnread(false);
                 } catch {}
               }
             }}
-            title="What's New & Updates"
+            title="Notifications"
           >
             <Bell size={16} />
             {hasUnread && (
@@ -211,9 +211,10 @@ const TopBar = () => {
           <UpdatesModal 
             isOpen={showUpdates} 
             onClose={() => setShowUpdates(false)}
+            hasUnread={hasUnread}
             onMarkAllRead={() => {
               try {
-                localStorage.setItem('sxr_last_read_update', APP_UPDATES[0]?.id || 'read');
+                localStorage.setItem('sxr_last_read_update', SXR_NOTIFICATIONS[0]?.id || 'read');
                 setHasUnread(false);
               } catch {}
             }}
